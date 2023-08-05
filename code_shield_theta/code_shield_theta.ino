@@ -1,13 +1,18 @@
 /*
-Date: 28/07/2023
-Version: 2.0
+Date: 05/08/2023
+Version: 0.2
+
+usable to test speed and control
+
+TODO:
+[ ] feedback loop control to asset desired speed
 */
 
 // control joystick
 int Xchannel = 25;
 int Ychannel = 26;
-int Xvalue = 130;
-int Yvalue = 130;
+int Xvalue = 100;
+int Yvalue = 100;
 
 
 struct Hall {
@@ -40,6 +45,8 @@ struct wheel {
   int direction;  // 0 = stop; 1 = reverse; 2 = forward;
   float velocity;
 };
+
+// #define configTICK_RATE_HZ  10000  // try this to 10000, 1k is default, to have more decimal points in speed (freertos.org/a00110.html)
 
 
 // portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
@@ -102,8 +109,8 @@ void setup() {
 }
 
 void loop() {
-  writeToJoystick();
-  /*
+  // writeToJoystick();
+
   struct wheel rightWheel;
   struct wheel leftWheel;
 
@@ -123,13 +130,48 @@ void loop() {
   Serial.print(rightWheel.velocity);
   Serial.println(" km/h");
   Serial.println();
-  Serial.println("- - - - - - - - - - - - - - - - - - - - - - - - - - - -");
+  Serial.println("- - - - - - - - - - - - - - - - - - - - - - - - - - -");
+}
+
+
+void writeToJoystick() {
+
+  // try this some day
+  /*
+  if(Serial.available()){
+    Xvalue = Serial.readStringUntil('\n');
+    dacWrite(Xchannel, Xvalue);
+    Serial.print("Xvalue: ");
+    Serial.println(Xvalue);
+
+    Yvalue = Serial.parseInt();
+    dacWrite(Ychannel, Yvalue);
+    Serial.print("Yvalue: ");
+    Serial.println(Yvalue);
+  }
   */
+
+  // dacWrite(Xchannel, 100);
+  // dacWrite(Ychannel, 100);
+
+  while (Serial.available() == 0) {
+  }
+  Serial.println("------------------------------");
+
+  Xvalue = Serial.parseInt();
+  dacWrite(Xchannel, Xvalue);
+  Serial.print("Xvalue: ");
+  Serial.println(Xvalue);
+
+  Yvalue = Serial.parseInt();
+  dacWrite(Ychannel, Yvalue);
+  Serial.print("Yvalue: ");
+  Serial.println(Yvalue);
 }
 
 wheel speedLeftWheel(Hall* Ahall, Hall* Bhall) {
   static wheel localWheel;
-  Ahall->currentTime = micros();
+  Ahall->currentTime = micros();  // change to xTaskGetTickCount ??????
 
   // If the wheels have stopped for stoppedTime, reset hall values
   if (Ahall->currentTime - Ahall->previousTime >= stoppedTime) {
@@ -169,122 +211,38 @@ wheel speedLeftWheel(Hall* Ahall, Hall* Bhall) {
   return localWheel;
 }
 
-
-
-
-
-
-
-
 wheel speedRightWheel(Hall* Ahall, Hall* Bhall) {
   static wheel localWheel;
-  Ahall->currentTime = micros();  // change to xTaskGetTickCount ??????
+  Ahall->currentTime = micros();
 
-  // Serial.print(currentTime);
-  // Serial.print(" " + String(previousTime));
-  // Serial.println("  " + String(stoppedTime));
-
-  // If the wheels have stopped for stoppedTime, reset hall values
   if (Ahall->currentTime - Ahall->previousTime >= stoppedTime) {
-
     Ahall->endPulse = true;
     Ahall->timeStart = 0;
     Bhall->timeEnd = 0;
     Ahall->timeEnd = 0;
     Ahall->previousTime = Ahall->currentTime;
 
-    localWheel.direction = 0;  //"STP - ";
-    localWheel.velocity = 0;   // velLinear = 0;
-
-    // return (2.0, 1.0);
-    // Serial.println(direction + String(velLinear) + " km/h");
+    localWheel.direction = 0;
+    localWheel.velocity = 0;
   }
 
-
-  // If there is a turn complete from A Hall sensor
   if (Ahall->timeStart && Ahall->endPulse) {
-
-    // Determine the direction of wheel rotation based on the readings of both Hall sensors
     if ((Ahall->timeEnd - Bhall->timeEnd) > (Bhall->timeEnd - Ahall->timeStart)) {
-      localWheel.direction = 1;  // "RVS - ";
+      localWheel.direction = 1;
     } else {
-      localWheel.direction = 2;  //"FWD - ";
+      localWheel.direction = 2;
     }
 
-    deltaTime = (Ahall->timeEnd - Ahall->timeStart);  // in miliseconds
+    deltaTime = (Ahall->timeEnd - Ahall->timeStart);
     freq = 1 / (deltaTime / 1000.0);
-    rpmWheel = freq * (60 / 32.0);  // divide by float to save whole number
+    rpmWheel = freq * (60 / 32.0);
     velAng = ((rpmWheel * (2 * PI / 60.0)));
-    localWheel.velocity = velAng * radiusWheel * 3.6;  // 3.6 for km/h
+    localWheel.velocity = velAng * radiusWheel * 3.6;
 
-    // Serial.println(deltaTime);
-
-    // Reset the Hall sensor values and update the previousTime variable
     Ahall->timeStart = 0;
     Bhall->timeEnd = 0;
     Ahall->timeEnd = 0;
     Ahall->previousTime = Ahall->currentTime;
-
-    // return (2.0, 1.0);
-    // Serial.println(direction + String(velLinear) + " km/h");
-
-    // String return_string = (direction + String(velLinear) + " m/s");
   }
-  // localVelDir.vel = velLinear;
-  // localVelDir.dir = direction;
   return localWheel;
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-void writeToJoystick() {
-
-  // try this
-  /*
-  if(Serial.available()){
-    Xvalue = Serial.readStringUntil('\n');
-    dacWrite(Xchannel, Xvalue);
-    Serial.print("Xvalue: ");
-    Serial.println(Xvalue);
-
-    Yvalue = Serial.parseInt();
-    dacWrite(Ychannel, Yvalue);
-    Serial.print("Yvalue: ");
-    Serial.println(Yvalue);
-  }
-  */
-
-  // dacWrite(Xchannel, Xvalue);
-  // dacWrite(Ychannel, Yvalue);
-
-
-  
-  while (Serial.available() == 0) {
-  }
-  Serial.println("------------------------------");
-
-  Xvalue = Serial.parseInt();
-  dacWrite(Xchannel, Xvalue);
-  Serial.print("Xvalue: ");
-  Serial.println(Xvalue);
-
-  Yvalue = Serial.parseInt();
-  dacWrite(Ychannel, Yvalue);
-  Serial.print("Yvalue: ");
-  Serial.println(Yvalue);
-  
 }
