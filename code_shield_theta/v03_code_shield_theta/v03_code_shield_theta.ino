@@ -105,7 +105,7 @@ void setup() {
 
 void loop() {
   writeToJoystick();
-  /*
+
   struct wheel rightWheel;
   struct wheel leftWheel;
 
@@ -126,7 +126,6 @@ void loop() {
   Serial.println(" km/h");
   Serial.println();
   Serial.println("- - - - - - - - - - - - - - - - - - - - - - - - - - - -");
-  */
 }
 
 wheel speedLeftWheel(Hall* Ahall, Hall* Bhall) {
