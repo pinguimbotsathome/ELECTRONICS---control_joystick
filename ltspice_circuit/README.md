@@ -2,4 +2,4 @@
 
  - Put LM358.asy on LTspice\lib\sym 
 
- - Simulate with the file circuit_shield_theta.asc
+ - Run circuit_shield_theta.asc
