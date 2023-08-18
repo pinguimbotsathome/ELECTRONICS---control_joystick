@@ -277,53 +277,27 @@ void writeToJoystick() {
 
 void joystickConverter(float Xvar, float Yvar, int &XJoy, int &YJoy) {  
   // Clamp input values within the range [-VDmax, VDmax]
-  Xvar = (Xvar < -VDmax) ? -VDmax : (Xvar > VDmax) ? VDmax : Xvar;
-  Yvar = (Yvar < -VDmax) ? -VDmax : (Yvar > VDmax) ? VDmax : Yvar;
+  Xvar = constrain(Xvar, -VDmax, VDmax);
+  Yvar = constrain(Yvar, -VDmax, VDmax);
 
-  if(Xvar != 0) {
-    if (Yvar != 0) {
-      // Adjust the Y component
-      if (Yvar > 0) {
-        YJoy = (Yvar - 0) * (255 - 130) / (VDmax - 0) + 130;
-      } else {
-        YJoy = (Yvar - VRmax) * (130 - 0) / (0 - VRmax) + 0;
-      }
+  if (Yvar > 0) {
+    // Positive speed on the Y-axis
+    YJoy = (Yvar - 0) * (255 - 130) / (VDmax - 0) + 130;
+  } else if (Yvar < 0) {
+    // Negative speed on the Y-axis
+    YJoy = (Yvar - VRmax) * (130 - 0) / (0 - VRmax) + 0;
+  } else {
+    YJoy = 130;
+  }
 
-      // Adjust the X component
-      if (Xvar > 0) {
-        XJoy = (Xvar - 0) * (255 - 130) / (VDmax - 0) + 130;
-      } else {
-        XJoy = (Xvar - VRmax) * (130 - 0) / (0 - VRmax) + 0;
-      }
-
-    } else {
-      Yvar = 130;
-
-      if (Xvar > 0) {
-        // Quick right turn
-        XJoy = (Xvar - 0) * (255 - 130) / (VRTmax - 0) + 130;
-      } else {
-        // Quick left turn
-        XJoy = (Xvar - VLTmax) * (130 - 0) / (0 - VLTmax) + 0;
-      }
-
-    }
-
+  if (Yvar > 0) {
+    // Positive speed on the X-axis
+    XJoy = (Xvar - 0) * (255 - 130) / (VDmax - 0) + 130;
+  } else if (Xvar < 0) {
+    // Negative speed on the X-axis
+    XJoy = (Xvar - VRmax) * (130 - 0) / (0 - VRmax) + 0;
   } else {
     XJoy = 130;
-    if (Yvar != 0) {
-      if (Yvar > 0) {
-        // Go forward
-        YJoy = (Yvar - 0) * (255 - 130) / (VDmax - 0) + 130;
-      } else {
-        // Go back
-        YJoy = (Yvar - VRmax) * (130 - 0) / (0 - VRmax) + 0;
-      }
-
-    } else {
-      // Stopped
-      YJoy = 130;
-
-    }
   }
+
 }
