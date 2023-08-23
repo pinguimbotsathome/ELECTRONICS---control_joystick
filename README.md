@@ -7,5 +7,8 @@ Circuits and electronics require to read odometry data and control the joystick.
 
 <!-- 
 TODO:
-talk about the folders
+- talk about the folders
+
+cite this to explain methods to convert 3.3v to 5v
+- https://ww1.microchip.com/downloads/en/DeviceDoc/chapter%208.pdf
 -->
