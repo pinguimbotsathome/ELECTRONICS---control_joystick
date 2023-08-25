@@ -98,13 +98,10 @@ void setup() {
 }
 
 void loop() {
-
-  struct wheel rightWheel;
-  struct wheel leftWheel;
-
-  leftWheel = speedLeftWheel(&ALeftHall, &BLeftHall);
-  Serial.println(leftWheel.velocity);
-  // rightWheel = speedRightWheel(&ARightHall, &BRightHall);
+  wheel leftWheel = calculateWheelSpeed(&ALeftHall, &BLeftHall);
+  Serial.println("LEFT = "+ String(leftWheel.velocity));
+  wheel rightWheel = calculateWheelSpeed(&ARightHall, &BRightHall);
+  Serial.println("RIGHT = "+ String(rightWheel.velocity));
 }
 
 
@@ -128,7 +125,7 @@ void loop() {
 // }
 
 
-wheel speedLeftWheel(Hall* Ahall, Hall* Bhall) {
+wheel calculateWheelSpeed(Hall* Ahall, Hall* Bhall) {
   static wheel localWheel;
   Ahall->currentTime = micros();
 
@@ -166,3 +163,10 @@ wheel speedLeftWheel(Hall* Ahall, Hall* Bhall) {
 
   return localWheel;
 }
+
+
+
+
+
+
+
