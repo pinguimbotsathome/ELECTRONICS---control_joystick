@@ -4,20 +4,12 @@
   Last modification: 25/08/2023
   Version: 0.4
 
-usable to read speed from hall efect sensor,
-control joystick by typing the bits values
+- usable to read speed from hall efect sensor (speedLeftWheel and speedRightWheel)
+- control joystick by typing the bits values (writeJoystickManually)
 
 TODO:
-[ ] convert values XLinearROS and ZAngROS to XJoy and YJoy
 [ ] do the feedback loop control to asset desired speed
 */
-
-
-// control joystick
-int Xchannel = 25;
-int Ychannel = 26;
-int X_joy = 105;
-int Y_joy = 105;
 
 struct Hall {
   int pin;
@@ -35,12 +27,23 @@ Hall BLeftHall = { 21, true, 0, 0, 0, 0 };   // blue - blue
 
 
 // variables - change radius and stoppedTime accordingly
-int stoppedTime = 1000000;  // 1s = 1 000 000
-float radiusWheel = 0.165;  // in meters
-
 
 struct wheel {
-  float velocity;
+  int stoppedTime = 1000000;  // 1s = 1 000 000
+  float angularFrequency;
+};
+
+int Xchannel = 25;
+int Ychannel = 26;
+int X_joy;  // = 105;
+int Y_joy;  // = 105;
+
+
+struct robot {
+  float radiusWheel = 0.165;  // in meters
+  float trackWidth = 0.5;
+  float velLinear;
+  float velAngular;
 };
 
 
@@ -98,39 +101,97 @@ void setup() {
 }
 
 void loop() {
-  wheel leftWheel = calculateWheelSpeed(&ALeftHall, &BLeftHall);
-  Serial.println("LEFT = "+ String(leftWheel.velocity));
-  wheel rightWheel = calculateWheelSpeed(&ARightHall, &BRightHall);
-  Serial.println("RIGHT = "+ String(rightWheel.velocity));
+
+  // writeJoystickManually();
+  // Serial.println("- - - - - - - - - - - - - - - - - - - - - - - - - - - -");
+
+
+  wheel leftWheel = speedLeftWheel(&ALeftHall, &BLeftHall);
+  // Serial.println("LEFT = " + String(leftWheel.angularFrequency));
+  wheel rightWheel = speedRightWheel(&ARightHall, &BRightHall);
+  // Serial.println("RIGHT = " + String(rightWheel.angularFrequency));
+  robot theta = wheelsVelocity2robotVelocity(leftWheel.angularFrequency, rightWheel.angularFrequency);
+  Serial.println("vLIN = " + String(theta.velLinear));
+  Serial.println("vANG = " + String(theta.velAngular));
+  Serial.println("- - - - - - - - - - - - - - - - - - - - - - - - - - - -");
+
+
+  controle_vel_linear(2.7, theta.velLinear);
+  Serial.println("- - - - - - - - - - - - - - - - - - - - - - - - - - - -");
 }
 
 
-// void writeToJoystick() {
-//   float X_ROS;
-//   float Z_ROS;
 
-//   if (Serial.available() > 0) {  // No Line Ending
+void controle_vel_linear(float velocidade_desejada, float velocidade_medida) {
 
-//     X_ROS = Serial.parseFloat();
-//     Z_ROS = Serial.parseFloat();
-//     // joystickConverter(X_ROS, Z_ROS, X_joy, Y_joy);
-//     Serial.println("------------------------------");
+  float velocidade_controlada;  // Control output
+  float kp = 0.5;               // Proportional gain
+  float ki = 2.0;               // Integral gain
+  float kd = 0.01;              // Derivative gain
 
-//     dacWrite(Xchannel, X_joy);
-//     dacWrite(Ychannel, Y_joy);
+  float prevError = 0.0;
+  float integral = 0.0;
+  long prevTime = 0;
+  unsigned long sampleTime = 100;  //Sample time in milliseconds
 
-//     Serial.println("Input:  X_ROS: " + String(X_ROS) + ", Z_ROS: " + String(Z_ROS));
-//     Serial.println("Output: X_joy: " + String(X_joy) + ", Y_joy: " + String(Y_joy));
-//   }
-// }
+  unsigned long tempoAtual = millis();
+  if (tempoAtual - prevTime >= sampleTime) {
+    double error = velocidade_desejada - velocidade_medida;
+    integral += error * (tempoAtual - prevTime);
+
+    double derivative = (error - prevError) / (tempoAtual - prevTime);
+
+    prevError = error;
+    prevTime = tempoAtual;
+
+    velocidade_controlada = kp * error + ki * integral + kd * derivative;
+    // return velocidade_controlada;
+
+    Serial.print("velocidade_desejada: ");
+    Serial.print(velocidade_desejada);
+    Serial.print(" velocidade_medida: ");
+    Serial.print(velocidade_medida);
+    Serial.print(" velocidade_controlada: ");
+    Serial.println(velocidade_controlada);
+  }
+}
 
 
-wheel calculateWheelSpeed(Hall* Ahall, Hall* Bhall) {
-  static wheel localWheel;
+robot wheelsVelocity2robotVelocity(float leftWheel_angFreq, float rightWheel_angFreq) {
+  // https://www.roboticsbook.org/S52_diffdrive_actions.html
+
+  robot localRobot;
+
+  localRobot.velLinear = localRobot.radiusWheel * (rightWheel_angFreq + leftWheel_angFreq) / 2;
+  localRobot.velAngular = (rightWheel_angFreq - leftWheel_angFreq) / localRobot.trackWidth;
+  // velAngular is negative clockwise on ROS
+
+  return localRobot;
+}
+
+
+void robotVelocity2joystick(float velLinear, float velAngular) {
+  float velLinearMAX = 2.7;
+  float velLinearMIN = -1.7;
+  
+  float velAngularMAX = 54.0;  // velAngular is negative clockwise on ROS
+  float velAngularMIN = -velAngularMAX;
+
+
+  Y_joy = map(velLinear, velLinearMAX, velLinearMIN, 255, 0);
+  X_joy = map(velAngular, velAngularMAX, velAngularMIN, 0, 255);
+
+  dacWrite(Xchannel, X_joy);
+  dacWrite(Ychannel, Y_joy);
+}
+
+
+wheel speedLeftWheel(Hall* Ahall, Hall* Bhall) {
+  wheel localWheel;
   Ahall->currentTime = micros();
 
   // If the wheels have stopped for stoppedTime, reset hall values
-  if (Ahall->currentTime - Ahall->previousTime >= stoppedTime) {
+  if (Ahall->currentTime - Ahall->previousTime >= localWheel.stoppedTime) {
 
     Ahall->endPulse = true;
     Ahall->timeStart = 0;
@@ -138,21 +199,56 @@ wheel calculateWheelSpeed(Hall* Ahall, Hall* Bhall) {
     Ahall->timeEnd = 0;
     Ahall->previousTime = Ahall->currentTime;
 
-    localWheel.velocity = 0;
+    localWheel.angularFrequency = 0;
   }
 
-  // If there is a turn complete from A Hall sensor
+  // If there is a complete wheel turn from A Hall sensor
   if (Ahall->timeStart && Ahall->endPulse) {
     int deltaTime = (Ahall->timeEnd - Ahall->timeStart);  // in miliseconds
-    float freq = 1 / (deltaTime / 1000.0);                  // divide by float to save whole number
+    float freq = 1 / (deltaTime / 1000.0);                // divide by float to save whole number
     float rpmWheel = freq * (60 / 32.0);
-    float velAngWheel = ((rpmWheel * (2 * PI / 60.0)));
-    localWheel.velocity = velAngWheel * radiusWheel;       // m/s
+    localWheel.angularFrequency = ((rpmWheel * (2 * PI / 60.0)));  // (rad/s)
 
-    // Determine the direction of wheel rotation based on the readings of both Hall sensors
     if ((Ahall->timeEnd - Bhall->timeEnd) > (Bhall->timeEnd - Ahall->timeStart)) {
-      localWheel.velocity = localWheel.velocity*(-1);  // ReVerSe
-    } 
+      localWheel.angularFrequency = localWheel.angularFrequency * (-1);
+    }
+
+    // Reset the Hall sensor values and update the previousTime variable
+    Ahall->timeStart = 0;
+    Bhall->timeEnd = 0;
+    Ahall->timeEnd = 0;
+    Ahall->previousTime = Ahall->currentTime;
+  }
+
+  return localWheel;
+}
+
+wheel speedRightWheel(Hall* Ahall, Hall* Bhall) {
+  wheel localWheel;
+  Ahall->currentTime = micros();
+
+  // If the wheels have stopped for stoppedTime, reset hall values
+  if (Ahall->currentTime - Ahall->previousTime >= localWheel.stoppedTime) {
+
+    Ahall->endPulse = true;
+    Ahall->timeStart = 0;
+    Bhall->timeEnd = 0;
+    Ahall->timeEnd = 0;
+    Ahall->previousTime = Ahall->currentTime;
+
+    localWheel.angularFrequency = 0;
+  }
+
+  // If there is a complete wheel turn from A Hall sensor
+  if (Ahall->timeStart && Ahall->endPulse) {
+    int deltaTime = (Ahall->timeEnd - Ahall->timeStart);  // in miliseconds
+    float freq = 1 / (deltaTime / 1000.0);                // divide by float to save whole number
+    float rpmWheel = freq * (60 / 32.0);
+    localWheel.angularFrequency = ((rpmWheel * (2 * PI / 60.0)));  // (rad/s)
+
+    if ((Ahall->timeEnd - Bhall->timeEnd) > (Bhall->timeEnd - Ahall->timeStart)) {
+      localWheel.angularFrequency = localWheel.angularFrequency * (-1);
+    }
 
     // Reset the Hall sensor values and update the previousTime variable
     Ahall->timeStart = 0;
@@ -165,8 +261,13 @@ wheel calculateWheelSpeed(Hall* Ahall, Hall* Bhall) {
 }
 
 
+void writeJoystickManually() {
+  if (Serial.available() > 0) {  // No Line Ending
 
+    int X_joy = Serial.parseFloat();
+    int Y_joy = Serial.parseFloat();
 
-
-
-
+    dacWrite(Xchannel, X_joy);
+    dacWrite(Ychannel, Y_joy);
+  }
+}
