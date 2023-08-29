@@ -111,12 +111,12 @@ void loop() {
   wheel rightWheel = speedRightWheel(&ARightHall, &BRightHall);
   // Serial.println("RIGHT = " + String(rightWheel.angularFrequency));
   robot theta = wheelsVelocity2robotVelocity(leftWheel.angularFrequency, rightWheel.angularFrequency);
-  Serial.println("vLIN = " + String(theta.velLinear));
-  Serial.println("vANG = " + String(theta.velAngular));
-  Serial.println("- - - - - - - - - - - - - - - - - - - - - - - - - - - -");
+  // Serial.println("vLIN = " + String(theta.velLinear));
+  // Serial.println("vANG = " + String(theta.velAngular));
+  // Serial.println("- - - - - - - - - - - - - - - - - - - - - - - - - - - -");
 
 
-  controle_vel_linear(2.7, theta.velLinear);
+  robotVelocity2joystick(0.0, 0.0);
   Serial.println("- - - - - - - - - - - - - - - - - - - - - - - - - - - -");
 }
 
@@ -171,18 +171,21 @@ robot wheelsVelocity2robotVelocity(float leftWheel_angFreq, float rightWheel_ang
 
 
 void robotVelocity2joystick(float velLinear, float velAngular) {
-  float velLinearMAX = 2.7;
-  float velLinearMIN = -1.7;
-  
+  float velLinearMAX = 3.0;
+  float velLinearMIN = -3.0;
+
   float velAngularMAX = 54.0;  // velAngular is negative clockwise on ROS
   float velAngularMIN = -velAngularMAX;
 
 
-  Y_joy = map(velLinear, velLinearMAX, velLinearMIN, 255, 0);
-  X_joy = map(velAngular, velAngularMAX, velAngularMIN, 0, 255);
+  Y_joy = 255 * (velLinear - velLinearMIN) / (velLinearMAX - velLinearMIN);
+  X_joy = 255 * (velAngular - velAngularMIN) / (velAngularMAX - velAngularMIN);
 
   dacWrite(Xchannel, X_joy);
   dacWrite(Ychannel, Y_joy);
+
+  Serial.println("X_joy: " + String(X_joy));
+  Serial.println("Y_joy: " + String(Y_joy));
 }
 
 
