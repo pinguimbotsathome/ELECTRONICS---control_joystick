@@ -28,9 +28,14 @@ Hall BLeftHall = { 21, true, 0, 0, 0, 0 };   // blue - blue
 
 // variables - change radius and stoppedTime accordingly
 
+int stoppedTime = 1000000;  // 1s = 1 000 000
+float radiusWheel = 0.165;  // in meters
+int deltaTime;              // in miliseconds
+float freq, rpmWheel, angularFrequency;
+
+
 struct wheel {
-  int stoppedTime = 1000000;  // 1s = 1 000 000
-  float angularFrequency;
+  float velLinear;
 };
 
 int Xchannel = 25;
@@ -40,7 +45,6 @@ int Y_joy;  // = 105;
 
 
 struct robot {
-  float radiusWheel = 0.165;  // in meters
   float trackWidth = 0.5;
   float velLinear;
   float velAngular;
@@ -106,17 +110,17 @@ void loop() {
   // Serial.println("- - - - - - - - - - - - - - - - - - - - - - - - - - - -");
 
 
-  wheel leftWheel = speedLeftWheel(&ALeftHall, &BLeftHall);
-  // Serial.println("LEFT = " + String(leftWheel.angularFrequency));
-  wheel rightWheel = speedRightWheel(&ARightHall, &BRightHall);
-  // Serial.println("RIGHT = " + String(rightWheel.angularFrequency));
-  robot theta = wheelsVelocity2robotVelocity(leftWheel.angularFrequency, rightWheel.angularFrequency);
+  wheel leftWheel = speedRightWheel(&ALeftHall, &BLeftHall);
+  Serial.println("LEFT = " + String(leftWheel.velLinear));
+  // wheel rightWheel = speedRightWheel(&ARightHall, &BRightHall);
+  // Serial.println("RIGHT = " + String(rightWheel.velLinear));
+  // robot theta = wheelsVelocity2robotVelocity(leftWheel.velLinear, rightWheel.velLinear);
   // Serial.println("vLIN = " + String(theta.velLinear));
   // Serial.println("vANG = " + String(theta.velAngular));
   // Serial.println("- - - - - - - - - - - - - - - - - - - - - - - - - - - -");
 
 
-  robotVelocity2joystick(0.0, 0.0);
+  // robotVelocity2joystick(0.0, 0.0);
   Serial.println("- - - - - - - - - - - - - - - - - - - - - - - - - - - -");
 }
 
@@ -157,13 +161,13 @@ void controle_vel_linear(float velocidade_desejada, float velocidade_medida) {
 }
 
 
-robot wheelsVelocity2robotVelocity(float leftWheel_angFreq, float rightWheel_angFreq) {
+robot wheelsVelocity2robotVelocity(float leftWheel_velLinear, float rightWheel_velLinear) {
   // https://www.roboticsbook.org/S52_diffdrive_actions.html
 
   robot localRobot;
 
-  localRobot.velLinear = localRobot.radiusWheel * (rightWheel_angFreq + leftWheel_angFreq) / 2;
-  localRobot.velAngular = (rightWheel_angFreq - leftWheel_angFreq) / localRobot.trackWidth;
+  localRobot.velLinear = (rightWheel_velLinear + leftWheel_velLinear) / 2;
+  localRobot.velAngular = (rightWheel_velLinear - leftWheel_velLinear) / localRobot.trackWidth;
   // velAngular is negative clockwise on ROS
 
   return localRobot;
@@ -171,12 +175,11 @@ robot wheelsVelocity2robotVelocity(float leftWheel_angFreq, float rightWheel_ang
 
 
 void robotVelocity2joystick(float velLinear, float velAngular) {
-  float velLinearMAX = 3.0;
-  float velLinearMIN = -3.0;
+  float velLinearMAX = 0.7;   // (m/s) going forward
+  float velLinearMIN = -0.5;  // (m/s) going reverse
 
-  float velAngularMAX = 54.0;  // velAngular is negative clockwise on ROS
-  float velAngularMIN = -velAngularMAX;
-
+  float velAngularMAX = 3.5;  // (rad/s) 1 rad = 60°
+  float velAngularMIN = -2.5;
 
   Y_joy = 255 * (velLinear - velLinearMIN) / (velLinearMAX - velLinearMIN);
   X_joy = 255 * (velAngular - velAngularMIN) / (velAngularMAX - velAngularMIN);
@@ -190,11 +193,11 @@ void robotVelocity2joystick(float velLinear, float velAngular) {
 
 
 wheel speedLeftWheel(Hall* Ahall, Hall* Bhall) {
-  wheel localWheel;
+  static wheel localWheel;
   Ahall->currentTime = micros();
 
   // If the wheels have stopped for stoppedTime, reset hall values
-  if (Ahall->currentTime - Ahall->previousTime >= localWheel.stoppedTime) {
+  if (Ahall->currentTime - Ahall->previousTime >= stoppedTime) {
 
     Ahall->endPulse = true;
     Ahall->timeStart = 0;
@@ -202,18 +205,19 @@ wheel speedLeftWheel(Hall* Ahall, Hall* Bhall) {
     Ahall->timeEnd = 0;
     Ahall->previousTime = Ahall->currentTime;
 
-    localWheel.angularFrequency = 0;
+    localWheel.velLinear = 0;
   }
 
   // If there is a complete wheel turn from A Hall sensor
   if (Ahall->timeStart && Ahall->endPulse) {
-    int deltaTime = (Ahall->timeEnd - Ahall->timeStart);  // in miliseconds
-    float freq = 1 / (deltaTime / 1000.0);                // divide by float to save whole number
-    float rpmWheel = freq * (60 / 32.0);
-    localWheel.angularFrequency = ((rpmWheel * (2 * PI / 60.0)));  // (rad/s)
+    deltaTime = (Ahall->timeEnd - Ahall->timeStart);  // in miliseconds
+    freq = 1 / (deltaTime / 1000.0);                  // divide by float to save whole number
+    rpmWheel = freq * (60 / 32.0);
+    angularFrequency = ((rpmWheel * (2 * PI / 60.0)));      // (rad/s)
+    localWheel.velLinear = angularFrequency * radiusWheel;  // (m/s)
 
     if ((Ahall->timeEnd - Bhall->timeEnd) > (Bhall->timeEnd - Ahall->timeStart)) {
-      localWheel.angularFrequency = localWheel.angularFrequency * (-1);
+      localWheel.velLinear = localWheel.velLinear * (-1);
     }
 
     // Reset the Hall sensor values and update the previousTime variable
@@ -227,11 +231,11 @@ wheel speedLeftWheel(Hall* Ahall, Hall* Bhall) {
 }
 
 wheel speedRightWheel(Hall* Ahall, Hall* Bhall) {
-  wheel localWheel;
+  static wheel localWheel;
   Ahall->currentTime = micros();
 
   // If the wheels have stopped for stoppedTime, reset hall values
-  if (Ahall->currentTime - Ahall->previousTime >= localWheel.stoppedTime) {
+  if (Ahall->currentTime - Ahall->previousTime >= stoppedTime) {
 
     Ahall->endPulse = true;
     Ahall->timeStart = 0;
@@ -239,18 +243,19 @@ wheel speedRightWheel(Hall* Ahall, Hall* Bhall) {
     Ahall->timeEnd = 0;
     Ahall->previousTime = Ahall->currentTime;
 
-    localWheel.angularFrequency = 0;
+    localWheel.velLinear = 0;
   }
 
   // If there is a complete wheel turn from A Hall sensor
   if (Ahall->timeStart && Ahall->endPulse) {
-    int deltaTime = (Ahall->timeEnd - Ahall->timeStart);  // in miliseconds
-    float freq = 1 / (deltaTime / 1000.0);                // divide by float to save whole number
-    float rpmWheel = freq * (60 / 32.0);
-    localWheel.angularFrequency = ((rpmWheel * (2 * PI / 60.0)));  // (rad/s)
+    deltaTime = (Ahall->timeEnd - Ahall->timeStart);  // in miliseconds
+    freq = 1 / (deltaTime / 1000.0);                  // divide by float to save whole number
+    rpmWheel = freq * (60 / 32.0);
+    angularFrequency = ((rpmWheel * (2 * PI / 60.0)));      // (rad/s)
+    localWheel.velLinear = angularFrequency * radiusWheel;  // (m/s)
 
     if ((Ahall->timeEnd - Bhall->timeEnd) > (Bhall->timeEnd - Ahall->timeStart)) {
-      localWheel.angularFrequency = localWheel.angularFrequency * (-1);
+      localWheel.velLinear = localWheel.velLinear * (-1);
     }
 
     // Reset the Hall sensor values and update the previousTime variable
