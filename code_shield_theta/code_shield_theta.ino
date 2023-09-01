@@ -30,8 +30,6 @@ Hall BLeftHall = { 21, true, 0, 0, 0, 0 };   // blue - blue
 
 int stoppedTime = 1000000;  // 1s = 1 000 000
 float radiusWheel = 0.165;  // in meters
-int deltaTime;              // in miliseconds
-float freq, rpmWheel, angularFrequency;
 
 
 struct wheel {
@@ -111,17 +109,17 @@ void loop() {
 
 
   wheel leftWheel = speedLeftWheel(&ALeftHall, &BLeftHall);
-  Serial.println("LEFT = " + String(leftWheel.velLinear));
+  // Serial.println("LEFT = " + String(leftWheel.velLinear));
   wheel rightWheel = speedRightWheel(&ARightHall, &BRightHall);
-  Serial.println("RIGHT = " + String(rightWheel.velLinear));
-  // robot theta = wheelsVelocity2robotVelocity(leftWheel.velLinear, rightWheel.velLinear);
-  // Serial.println("vLIN = " + String(theta.velLinear));
+  // Serial.println("RIGHT = " + String(rightWheel.velLinear));
+  robot theta = wheelsVelocity2robotVelocity(leftWheel.velLinear, rightWheel.velLinear);
+  Serial.println("vLIN = " + String(theta.velLinear));
   // Serial.println("vANG = " + String(theta.velAngular));
   // Serial.println("- - - - - - - - - - - - - - - - - - - - - - - - - - - -");
 
 
   // robotVelocity2joystick(0.0, 0.0);
-  Serial.println("- - - - - - - - - - - - - - - - - - - - - - - - - - - -");
+  // Serial.println("- - - - - - - - - - - - - - - - - - - - - - - - - - - -");
 }
 
 
@@ -178,8 +176,8 @@ void robotVelocity2joystick(float velLinear, float velAngular) {
   float velLinearMAX = 0.7;   // (m/s) going forward
   float velLinearMIN = -0.5;  // (m/s) going reverse
 
-  float velAngularMAX = 3.5;  // (rad/s) 1 rad = 60°
-  float velAngularMIN = -2.5;
+  float velAngularMAX = 1.5;  // (rad/s) 1 rad = 60°
+  float velAngularMIN = -1.5;
 
   Y_joy = 255 * (velLinear - velLinearMIN) / (velLinearMAX - velLinearMIN);
   X_joy = 255 * (velAngular - velAngularMIN) / (velAngularMAX - velAngularMIN);
@@ -210,11 +208,11 @@ wheel speedLeftWheel(Hall* Ahall, Hall* Bhall) {
 
   // If there is a complete wheel turn from A Hall sensor
   if (Ahall->timeStart && Ahall->endPulse) {
-    deltaTime = (Ahall->timeEnd - Ahall->timeStart);  // in miliseconds
-    freq = 1 / (deltaTime / 1000.0);                  // divide by float to save whole number
-    rpmWheel = freq * (60 / 32.0);
-    angularFrequency = ((rpmWheel * (2 * PI / 60.0)));      // (rad/s)
-    localWheel.velLinear = angularFrequency * radiusWheel;  // (m/s)
+    int deltaTime = (Ahall->timeEnd - Ahall->timeStart);  // in miliseconds
+    float freq = 1 / (deltaTime / 1000.0);                // divide by float to save whole number
+    float rpmWheel = freq * (60 / 32.0);
+    float angularFrequency = ((rpmWheel * (2 * PI / 60.0)));  // (rad/s)
+    localWheel.velLinear = angularFrequency * radiusWheel;    // (m/s)
 
     if ((Ahall->timeEnd - Bhall->timeEnd) > (Bhall->timeEnd - Ahall->timeStart)) {
       localWheel.velLinear = localWheel.velLinear * (-1);
@@ -248,11 +246,11 @@ wheel speedRightWheel(Hall* Ahall, Hall* Bhall) {
 
   // If there is a complete wheel turn from A Hall sensor
   if (Ahall->timeStart && Ahall->endPulse) {
-    deltaTime = (Ahall->timeEnd - Ahall->timeStart);  // in miliseconds
-    freq = 1 / (deltaTime / 1000.0);                  // divide by float to save whole number
-    rpmWheel = freq * (60 / 32.0);
-    angularFrequency = ((rpmWheel * (2 * PI / 60.0)));      // (rad/s)
-    localWheel.velLinear = angularFrequency * radiusWheel;  // (m/s)
+    int deltaTime = (Ahall->timeEnd - Ahall->timeStart);  // in miliseconds
+    float freq = 1 / (deltaTime / 1000.0);                // divide by float to save whole number
+    float rpmWheel = freq * (60 / 32.0);
+    float angularFrequency = ((rpmWheel * (2 * PI / 60.0)));  // (rad/s)
+    localWheel.velLinear = angularFrequency * radiusWheel;    // (m/s)
 
     if ((Ahall->timeEnd - Bhall->timeEnd) > (Bhall->timeEnd - Ahall->timeStart)) {
       localWheel.velLinear = localWheel.velLinear * (-1);
