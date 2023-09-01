@@ -110,10 +110,10 @@ void loop() {
   // Serial.println("- - - - - - - - - - - - - - - - - - - - - - - - - - - -");
 
 
-  wheel leftWheel = speedRightWheel(&ALeftHall, &BLeftHall);
+  wheel leftWheel = speedLeftWheel(&ALeftHall, &BLeftHall);
   Serial.println("LEFT = " + String(leftWheel.velLinear));
-  // wheel rightWheel = speedRightWheel(&ARightHall, &BRightHall);
-  // Serial.println("RIGHT = " + String(rightWheel.velLinear));
+  wheel rightWheel = speedRightWheel(&ARightHall, &BRightHall);
+  Serial.println("RIGHT = " + String(rightWheel.velLinear));
   // robot theta = wheelsVelocity2robotVelocity(leftWheel.velLinear, rightWheel.velLinear);
   // Serial.println("vLIN = " + String(theta.velLinear));
   // Serial.println("vANG = " + String(theta.velAngular));

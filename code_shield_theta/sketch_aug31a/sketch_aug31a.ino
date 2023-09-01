@@ -56,13 +56,14 @@ void IRAM_ATTR rightMotorISR(Hall* hall) {  // IRAM_ATTR to run on RAM
 }
 
 void IRAM_ATTR leftMotorISR(Hall* hall) {
-  // portENTER_CRITICAL(&mux);
+
   ALeftHall.timeStart = BLeftHall.timeEnd;
   BLeftHall.timeEnd = ALeftHall.timeEnd;
   ALeftHall.timeEnd = xTaskGetTickCountFromISR();
+
   hall->endPulse = !hall->endPulse;
-  // portEXIT_CRITICAL(&mux);
 }
+
 
 void setup() {
   Serial.begin(115200);
@@ -82,7 +83,8 @@ void setup() {
       rightMotorISR(&BRightHall);
     },
     FALLING);
-  attachInterrupt(
+
+    attachInterrupt(
     digitalPinToInterrupt(ALeftHall.pin), [] {
       leftMotorISR(&ALeftHall);
     },
@@ -93,27 +95,27 @@ void setup() {
     },
     FALLING);
 }
-void loop() {
-  struct wheel rightWheel;
-  struct wheel leftWheel;
 
-  Serial.println();
-  Serial.print("LEFT  = ");
-  leftWheel = speedLeftWheel(&ALeftHall, &BLeftHall);
+void loop() {
+
+  // Serial.println();
+  Serial.print("RIGHT  = ");
+  wheel leftWheel = speedRightWheel(&ALeftHall, &BLeftHall);
+  // wheel leftWheel = speedRightWheel(&ARightHall, &BRightHall);
   Serial.print(leftWheel.direction);
   Serial.print("  ");
   Serial.print(leftWheel.velocity);
-  Serial.print(" m/s");
-
-
-  Serial.print("                 RIGHT = ");
-  rightWheel = speedRightWheel(&ARightHall, &BRightHall);
-  Serial.print(rightWheel.direction);
-  Serial.print("  ");
-  Serial.print(rightWheel.velocity);
   Serial.println(" m/s");
-  Serial.println();
-  Serial.println("- - - - - - - - - - - - - - - - - - - - - - - - - - - -");
+
+
+  // Serial.print("                 RIGHT = ");
+  // rightWheel = speedRightWheel(&ARightHall, &BRightHall);
+  // Serial.print(rightWheel.direction);
+  // Serial.print("  ");
+  // Serial.print(rightWheel.velocity);
+  // Serial.println(" m/s");
+  // Serial.println();
+  // Serial.println("- - - - - - - - - - - - - - - - - - - - - - - - - - - -");
 }
 
 wheel speedRightWheel(Hall* Ahall, Hall* Bhall) {
@@ -151,46 +153,3 @@ wheel speedRightWheel(Hall* Ahall, Hall* Bhall) {
   return localWheel;
 }
 
-wheel speedLeftWheel(Hall* Ahall, Hall* Bhall) {
-  static wheel localWheel;
-  Ahall->currentTime = micros();  // change to xTaskGetTickCount ??????
-
-  // If the wheels have stopped for stoppedTime, reset hall values
-  if (Ahall->currentTime - Ahall->previousTime >= stoppedTime) {
-    Ahall->endPulse = true;
-    Ahall->timeStart = 0;
-    Bhall->timeEnd = 0;
-    Ahall->timeEnd = 0;
-    Ahall->previousTime = Ahall->currentTime;
-    localWheel.direction = 0;  //"STP - ";
-    localWheel.velocity = 0;   // velLinear = 0;
-
-    // Serial.println(direction + String(velLinear) + " km/h");
-  }
-  // If there is a turn complete from A Hall sensor
-  if (Ahall->timeStart && Ahall->endPulse) {
-    // Determine the direction of wheel rotation based on the readings of both Hall sensors
-    if ((Ahall->timeEnd - Bhall->timeEnd) > (Bhall->timeEnd - Ahall->timeStart)) {
-      localWheel.direction = 1;  // "RVS - ";
-    } else {
-      localWheel.direction = 2;  //"FWD - ";
-    }
-    deltaTime = (Ahall->timeEnd - Ahall->timeStart);  // in miliseconds
-    freq = 1 / (deltaTime / 1000.0);
-    rpmWheel = freq * (60 / 32.0);  // divide by float to save whole number
-    velAng = ((rpmWheel * (2 * PI / 60.0)));
-    localWheel.velocity = velAng * radiusWheel;  // 3m/s
-
-    // Reset the Hall sensor values and update the previousTime variable
-    Ahall->timeStart = 0;
-    Bhall->timeEnd = 0;
-    Ahall->timeEnd = 0;
-    Ahall->previousTime = Ahall->currentTime;
-    // return (2.0, 1.0);
-    // Serial.println(direction + String(velLinear) + " km/h");
-    // String return_string = (direction + String(velLinear) + " m/s");
-  }
-  // localVelDir.vel = velLinear;
-  // localVelDir.dir = direction;
-  return localWheel;
-}
