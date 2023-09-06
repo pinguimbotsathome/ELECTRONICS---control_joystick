@@ -1,8 +1,8 @@
 /*
   Theta Locomotion Control Algorithm (ESP)
   Developed by Felipe Machado and Mateus Santos da Silva
-  Last modification: 25/08/2023
-  Version: 0.4
+  Last modification: 06/09/2023
+  Version: 0.5
 
 - usable to read speed from hall efect sensor (speedLeftWheel and speedRightWheel)
 - control joystick by typing the bits values (writeJoystickManually)
@@ -113,32 +113,34 @@ void loop() {
   wheel rightWheel = speedRightWheel(&ARightHall, &BRightHall);
   // Serial.println("RIGHT = " + String(rightWheel.velLinear));
   robot theta = wheelsVelocity2robotVelocity(leftWheel.velLinear, rightWheel.velLinear);
-  Serial.println("vLIN = " + String(theta.velLinear));
+  // Serial.println("vLIN = " + String(theta.velLinear));
   // Serial.println("vANG = " + String(theta.velAngular));
   // Serial.println("- - - - - - - - - - - - - - - - - - - - - - - - - - - -");
 
 
-  // robotVelocity2joystick(0.0, 0.0);
+  float contrVelLin = controle_vel_linear(0.0, theta.velLinear);
+  robotVelocity2joystick(contrVelLin, 0.0);
+  // writeJoystickManually();
   // Serial.println("- - - - - - - - - - - - - - - - - - - - - - - - - - - -");
 }
 
 
 
-void controle_vel_linear(float velocidade_desejada, float velocidade_medida) {
+float controle_vel_linear(float vel_desejada, float vel_medida) {
 
-  float velocidade_controlada;  // Control output
-  float kp = 0.5;               // Proportional gain
-  float ki = 2.0;               // Integral gain
-  float kd = 0.01;              // Derivative gain
+  float vel_controlada;  // Control output
+  float kp = 0.01;             // Proportional gain
+  float ki = 0.0001;              // Integral gain
+  float kd = 0.001;             // Derivative gain
 
   float prevError = 0.0;
   float integral = 0.0;
   long prevTime = 0;
-  unsigned long sampleTime = 100;  //Sample time in milliseconds
+  unsigned long sampleTime = 500;  //Sample time in milliseconds
 
   unsigned long tempoAtual = millis();
   if (tempoAtual - prevTime >= sampleTime) {
-    double error = velocidade_desejada - velocidade_medida;
+    double error = vel_desejada - vel_medida;
     integral += error * (tempoAtual - prevTime);
 
     double derivative = (error - prevError) / (tempoAtual - prevTime);
@@ -146,15 +148,19 @@ void controle_vel_linear(float velocidade_desejada, float velocidade_medida) {
     prevError = error;
     prevTime = tempoAtual;
 
-    velocidade_controlada = kp * error + ki * integral + kd * derivative;
-    // return velocidade_controlada;
+    vel_controlada = kp * error + ki * integral + kd * derivative;
 
-    Serial.print("velocidade_desejada: ");
-    Serial.print(velocidade_desejada);
-    Serial.print(" velocidade_medida: ");
-    Serial.print(velocidade_medida);
-    Serial.print(" velocidade_controlada: ");
-    Serial.println(velocidade_controlada);
+    if (vel_controlada > 0.5) {
+      vel_controlada = 0.5;
+    } else if (vel_controlada < -0.6) {
+      vel_controlada = -0.6;
+    }
+
+    Serial.print("vel_desejada: " + String(vel_desejada));
+    Serial.print("   vel_medida: " + String(vel_medida));
+    Serial.println("   vel_controlada: " + String(vel_controlada));
+
+    return vel_controlada;
   }
 }
 
@@ -173,8 +179,8 @@ robot wheelsVelocity2robotVelocity(float leftWheel_velLinear, float rightWheel_v
 
 
 void robotVelocity2joystick(float velLinear, float velAngular) {
-  float velLinearMAX = 0.7;   // (m/s) going forward
-  float velLinearMIN = -0.5;  // (m/s) going reverse
+  float velLinearMAX = 0.5;   // (m/s) going forward
+  float velLinearMIN = -0.6;  // (m/s) going reverse
 
   float velAngularMAX = 1.5;  // (rad/s) 1 rad = 60°
   float velAngularMIN = -1.5;
@@ -185,8 +191,8 @@ void robotVelocity2joystick(float velLinear, float velAngular) {
   dacWrite(Xchannel, X_joy);
   dacWrite(Ychannel, Y_joy);
 
-  Serial.println("X_joy: " + String(X_joy));
-  Serial.println("Y_joy: " + String(Y_joy));
+  // Serial.print("X_joy: " + String(X_joy));
+  // Serial.println("      Y_joy: " + String(Y_joy));
 }
 
 
@@ -272,6 +278,9 @@ void writeJoystickManually() {
 
     int X_joy = Serial.parseFloat();
     int Y_joy = Serial.parseFloat();
+
+    Serial.println("X: " + String(X_joy));
+    Serial.println("Y: " + String(Y_joy));
 
     dacWrite(Xchannel, X_joy);
     dacWrite(Ychannel, Y_joy);
