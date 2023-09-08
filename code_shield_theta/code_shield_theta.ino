@@ -1,7 +1,7 @@
 /*
   Theta Locomotion Control Algorithm (ESP)
   Developed by Felipe Machado and Mateus Santos da Silva
-  Last modification: 06/09/2023
+  Last modification: 07/09/2023
   Version: 0.5
 
 - usable to read speed from hall efect sensor (speedLeftWheel and speedRightWheel)
@@ -36,6 +36,9 @@ struct wheel {
   float velLinear;
 };
 
+wheel leftWheel;
+wheel rightWheel;
+
 int Xchannel = 25;
 int Ychannel = 26;
 int X_joy;  // = 105;
@@ -47,6 +50,12 @@ struct robot {
   float velLinear;
   float velAngular;
 };
+
+// Variables - Digital filter
+#define sampleSize 100 // Number of samples that the filter will filter.
+#define samplingInterval 1 // Sets the sampling interval in (ms).
+
+unsigned long timer1 = 0; // 
 
 
 void IRAM_ATTR rightMotorISR(Hall* hall) {  // IRAM_ATTR to run on RAM
@@ -107,16 +116,25 @@ void loop() {
   // writeJoystickManually();
   // Serial.println("- - - - - - - - - - - - - - - - - - - - - - - - - - - -");
 
+  leftWheel = speedLeftWheel(&ALeftHall, &BLeftHall);
+  rightWheel = speedRightWheel(&ARightHall, &BRightHall);
 
-  wheel leftWheel = speedLeftWheel(&ALeftHall, &BLeftHall);
-  // Serial.println("LEFT = " + String(leftWheel.velLinear));
-  wheel rightWheel = speedRightWheel(&ARightHall, &BRightHall);
-  // Serial.println("RIGHT = " + String(rightWheel.velLinear));
+  wheel leftWheelFilter;
+  wheel rightWheelFilter;
+  
+  // Obtains the filtered value for the left wheel (side = 0).
+  leftWheelFilter.velLinear = movingAverageFilter(0, 0);
+  // Obtains the filtered value for the right wheel (side = 1).
+  rightWheelFilter.velLinear = movingAverageFilter(0, 1);
+  
+  Serial.println("LEFT = " + String(leftWheelFilter.velLinear));
+  Serial.println("RIGHT = " + String(rightWheelFilter.velLinear));
+
   robot theta = wheelsVelocity2robotVelocity(leftWheel.velLinear, rightWheel.velLinear);
   // Serial.println("vLIN = " + String(theta.velLinear));
   // Serial.println("vANG = " + String(theta.velAngular));
-  // Serial.println("- - - - - - - - - - - - - - - - - - - - - - - - - - - -");
 
+  // Serial.println("- - - - - - - - - - - - - - - - - - - - - - - - - - - -");
 
   float contrVelLin = controle_vel_linear(0.0, theta.velLinear);
   robotVelocity2joystick(contrVelLin, 0.0);
@@ -284,5 +302,71 @@ void writeJoystickManually() {
 
     dacWrite(Xchannel, X_joy);
     dacWrite(Ychannel, Y_joy);
+  }
+}
+
+void sampling() {
+  // Checks the sampling time.
+  if(millis() - timer1 > samplingInterval) {
+    // If the sampling time has occurred, it sends one to the moving average filter function in order to update the output value to a new filtered value.
+    movingAverageFilter(1, 0);
+    movingAverageFilter(1, 1);
+
+    timer1 = millis(); // Stores the last count.
+  }
+}
+
+// Moving average function (uses the static variable, meaning it saves the content without losing it on the next function execution).
+float movingAverageFilter(bool updateOutput, bool side){
+  // Wheel right
+  static float previousReadingsRight[sampleSize]; // Circular Buffer.
+  static int positionRight = 0; // Current reading position, which should be saved.
+  static long amountRight = 0; // Total sum of the circular buffer.
+  static float averageRight = 0; // Stores the result of the moving average filter.
+
+  // Wheel left
+  static float previousReadingsLeft[sampleSize];
+  static int positionLeft = 0;
+  static long amountLeft = 0;
+  static float averageLeft = 0;
+
+  static bool clearVector = 1; // Enables or disables vector clearing.
+
+  // Clears the vector the first time the function is executed.
+  if(clearVector) {
+    for(int i = 0; i <= sampleSize; i++){
+      previousReadingsRight[i] = 0;
+      previousReadingsLeft[i] = 0;
+    }
+
+    clearVector = 0;
+  }
+
+  if(side){
+    // Wheel right (side = 1)
+    if(updateOutput == 0)
+      // If the parameter received in the function is zero, it returns only the previously calculated mean value.
+      return ((double)averageRight);
+    else{
+      // If it's equal to one, it means it's at the sampling time, and then it updates the average variable.
+      amountRight = rightWheel.velLinear - previousReadingsRight[positionRight % sampleSize];
+      previousReadingsRight[positionRight % sampleSize] = rightWheel.velLinear;
+      averageRight = (float)amountRight / (float)sampleSize;
+      positionRight = (positionRight + 1) % sampleSize; 
+
+      return((double)averageRight);
+    }
+  }else{
+    // Wheel left (side = 0)
+    if(updateOutput == 0)
+      return ((double)averageLeft);
+    else{
+      amountLeft = leftWheel.velLinear - previousReadingsLeft[positionLeft % sampleSize];
+      previousReadingsLeft[positionLeft % sampleSize] = leftWheel.velLinear;
+      averageLeft = (float)amountLeft / (float)sampleSize;
+      positionLeft = (positionLeft + 1) % sampleSize;
+
+      return((double)averageLeft);
+    }
   }
 }
