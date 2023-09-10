@@ -119,6 +119,8 @@ void loop() {
   leftWheel = speedLeftWheel(&ALeftHall, &BLeftHall);
   rightWheel = speedRightWheel(&ARightHall, &BRightHall);
 
+  sampling();
+
   wheel leftWheelFilter;
   wheel rightWheelFilter;
   
@@ -349,7 +351,7 @@ float movingAverageFilter(bool updateOutput, bool side){
       return ((double)averageRight);
     else{
       // If it's equal to one, it means it's at the sampling time, and then it updates the average variable.
-      amountRight = rightWheel.velLinear - previousReadingsRight[positionRight % sampleSize];
+      amountRight = rightWheel.velLinear - previousReadingsRight[positionRight % sampleSize] + amountRight;
       previousReadingsRight[positionRight % sampleSize] = rightWheel.velLinear;
       averageRight = (float)amountRight / (float)sampleSize;
       positionRight = (positionRight + 1) % sampleSize; 
@@ -361,7 +363,7 @@ float movingAverageFilter(bool updateOutput, bool side){
     if(updateOutput == 0)
       return ((double)averageLeft);
     else{
-      amountLeft = leftWheel.velLinear - previousReadingsLeft[positionLeft % sampleSize];
+      amountLeft = leftWheel.velLinear - previousReadingsLeft[positionLeft % sampleSize] + amountLeft;
       previousReadingsLeft[positionLeft % sampleSize] = leftWheel.velLinear;
       averageLeft = (float)amountLeft / (float)sampleSize;
       positionLeft = (positionLeft + 1) % sampleSize;
