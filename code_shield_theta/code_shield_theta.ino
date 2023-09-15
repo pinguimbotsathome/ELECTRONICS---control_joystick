@@ -20,15 +20,15 @@ struct Hall {
   unsigned long previousTime;
 };
 
-Hall ARightHall = { 5, true, 0, 0, 0, 0 };   // white - orange
-Hall BRightHall = { 18, true, 0, 0, 0, 0 };  // brown - blue
-Hall ALeftHall = { 19, true, 0, 0, 0, 0 };   // gray - orange
-Hall BLeftHall = { 21, true, 0, 0, 0, 0 };   // blue - blue
+Hall ALeftHall = { 5, true, 0, 0, 0, 0 };    // white - orange
+Hall BLeftHall = { 18, true, 0, 0, 0, 0 };   // brown - blue
+Hall ARightHall = { 19, true, 0, 0, 0, 0 };  // gray - orange
+Hall BRightHall = { 21, true, 0, 0, 0, 0 };  // blue - blue
 
 
 // variables - change radius and stoppedTime accordingly
 
-int stoppedTime = 1000000;  // 1s = 1 000 000
+int stoppedTime = 300;      // 0.3s = 300 000
 float radiusWheel = 0.165;  // in meters
 
 
@@ -104,22 +104,28 @@ void setup() {
 
 void loop() {
 
-  // writeJoystickManually();
+  writeJoystickManually();
   // Serial.println("- - - - - - - - - - - - - - - - - - - - - - - - - - - -");
 
 
   wheel leftWheel = speedLeftWheel(&ALeftHall, &BLeftHall);
-  // Serial.println("LEFT = " + String(leftWheel.velLinear));
+  float leftWheel_filtered = recursiveFilter(leftWheel.velLinear);
+  // Serial.println("LEFT = " + String(leftWheel_filtered));
+
   wheel rightWheel = speedRightWheel(&ARightHall, &BRightHall);
+  float rightWheel_filtered = recursiveFilter(rightWheel.velLinear);
   // Serial.println("RIGHT = " + String(rightWheel.velLinear));
-  robot theta = wheelsVelocity2robotVelocity(leftWheel.velLinear, rightWheel.velLinear);
+  robot theta = wheelsVelocity2robotVelocity(leftWheel_filtered, rightWheel_filtered);
   // Serial.println("vLIN = " + String(theta.velLinear));
   // Serial.println("vANG = " + String(theta.velAngular));
   // Serial.println("- - - - - - - - - - - - - - - - - - - - - - - - - - - -");
 
+  // Serial.println(theta.velLinear);
 
-  float contrVelLin = controle_vel_linear(0.0, theta.velLinear);
+  float contrVelLin = controle_vel_linear(0.4, theta.velLinear);
   robotVelocity2joystick(contrVelLin, 0.0);
+
+
   // writeJoystickManually();
   // Serial.println("- - - - - - - - - - - - - - - - - - - - - - - - - - - -");
 }
@@ -129,38 +135,40 @@ void loop() {
 float controle_vel_linear(float vel_desejada, float vel_medida) {
 
   float vel_controlada;  // Control output
-  float kp = 0.01;             // Proportional gain
-  float ki = 0.0001;              // Integral gain
-  float kd = 0.001;             // Derivative gain
+  float kp = 10.0;       // Proportional gain
+  float ki = 0.001;      // Integral gain
+  float kd = 0.0001;     // Derivative gain
 
-  float prevError = 0.0;
-  float integral = 0.0;
-  long prevTime = 0;
-  unsigned long sampleTime = 500;  //Sample time in milliseconds
+  float prevError;
+  float integral;
+  long prevTime;
+  unsigned long sampleTime = 100;  //Sample time in milliseconds
 
-  unsigned long tempoAtual = millis();
+  unsigned long tempoAtual = xTaskGetTickCount();
   if (tempoAtual - prevTime >= sampleTime) {
-    double error = vel_desejada - vel_medida;
-    integral += error * (tempoAtual - prevTime);
 
-    double derivative = (error - prevError) / (tempoAtual - prevTime);
+    double error = vel_desejada - vel_medida;
+
+
+    integral += error;
+    double derivative = (error - prevError);
 
     prevError = error;
     prevTime = tempoAtual;
 
     vel_controlada = kp * error + ki * integral + kd * derivative;
 
-    if (vel_controlada > 0.5) {
-      vel_controlada = 0.5;
-    } else if (vel_controlada < -0.6) {
-      vel_controlada = -0.6;
+    float a = vel_desejada + vel_controlada;
+    if (a > 0.5) {
+      a = 0.5;
+    } else if (a < -0.6) {
+      a = -0.6;
     }
 
     Serial.print("vel_desejada: " + String(vel_desejada));
     Serial.print("   vel_medida: " + String(vel_medida));
-    Serial.println("   vel_controlada: " + String(vel_controlada));
-
-    return vel_controlada;
+    Serial.println("   vel_controlada: " + String(a));
+    return a;
   }
 }
 
@@ -198,7 +206,44 @@ void robotVelocity2joystick(float velLinear, float velAngular) {
 
 wheel speedLeftWheel(Hall* Ahall, Hall* Bhall) {
   static wheel localWheel;
-  Ahall->currentTime = micros();
+  Ahall->currentTime = xTaskGetTickCount();  // micros();
+
+  // If the wheels have stopped for stoppedTime, reset hall values
+  if (Ahall->currentTime - Ahall->previousTime >= stoppedTime) {
+
+    Ahall->endPulse = true;
+    Ahall->timeStart = 0;
+    Bhall->timeEnd = 0;
+    Ahall->timeEnd = 0;
+    Ahall->previousTime = Ahall->currentTime;
+
+    localWheel.velLinear = 0;
+  }
+
+  // If there is a complete wheel turn from A Hall sensor
+  if (Ahall->timeStart && Ahall->endPulse) {
+    int deltaTime = (Ahall->timeEnd - Ahall->timeStart);  // in miliseconds
+    float freq = 1 / (deltaTime / 1000.0);                // divide by float to save whole number
+    float rpmWheel = freq * (60 / 32.0);
+    float angularFrequency = ((rpmWheel * (2 * PI / 60.0)));  // (rad/s)
+    localWheel.velLinear = angularFrequency * radiusWheel;    // (m/s)
+
+    if ((Ahall->timeEnd - Bhall->timeEnd) > (Bhall->timeEnd - Ahall->timeStart)) {
+      localWheel.velLinear = localWheel.velLinear * (-1);
+    }
+
+    // Reset the Hall sensor values and update the previousTime variable
+    Ahall->timeStart = 0;
+    Bhall->timeEnd = 0;
+    Ahall->timeEnd = 0;
+    Ahall->previousTime = Ahall->currentTime;
+  }
+  return localWheel;
+}
+
+wheel speedRightWheel(Hall* Ahall, Hall* Bhall) {
+  static wheel localWheel;
+  Ahall->currentTime = xTaskGetTickCount();  // micros();
 
   // If the wheels have stopped for stoppedTime, reset hall values
   if (Ahall->currentTime - Ahall->previousTime >= stoppedTime) {
@@ -234,42 +279,22 @@ wheel speedLeftWheel(Hall* Ahall, Hall* Bhall) {
   return localWheel;
 }
 
-wheel speedRightWheel(Hall* Ahall, Hall* Bhall) {
-  static wheel localWheel;
-  Ahall->currentTime = micros();
 
-  // If the wheels have stopped for stoppedTime, reset hall values
-  if (Ahall->currentTime - Ahall->previousTime >= stoppedTime) {
+float recursiveFilter(float speed_measured) {
+  static int sample_interval = 10;  // microseconds
+  static int sample_qtd = 10;
+  static float speed_filtered;
+  static unsigned long last_update_time;
 
-    Ahall->endPulse = true;
-    Ahall->timeStart = 0;
-    Bhall->timeEnd = 0;
-    Ahall->timeEnd = 0;
-    Ahall->previousTime = Ahall->currentTime;
+  unsigned long current_time = xTaskGetTickCount();
 
-    localWheel.velLinear = 0;
-  }
-
-  // If there is a complete wheel turn from A Hall sensor
-  if (Ahall->timeStart && Ahall->endPulse) {
-    int deltaTime = (Ahall->timeEnd - Ahall->timeStart);  // in miliseconds
-    float freq = 1 / (deltaTime / 1000.0);                // divide by float to save whole number
-    float rpmWheel = freq * (60 / 32.0);
-    float angularFrequency = ((rpmWheel * (2 * PI / 60.0)));  // (rad/s)
-    localWheel.velLinear = angularFrequency * radiusWheel;    // (m/s)
-
-    if ((Ahall->timeEnd - Bhall->timeEnd) > (Bhall->timeEnd - Ahall->timeStart)) {
-      localWheel.velLinear = localWheel.velLinear * (-1);
+  if (current_time - last_update_time >= sample_interval) {
+    if (speed_measured <= speed_filtered + 0.7) {
+      speed_filtered += (speed_measured - speed_filtered) / (float)sample_qtd;
+      last_update_time = current_time;
     }
-
-    // Reset the Hall sensor values and update the previousTime variable
-    Ahall->timeStart = 0;
-    Bhall->timeEnd = 0;
-    Ahall->timeEnd = 0;
-    Ahall->previousTime = Ahall->currentTime;
   }
-
-  return localWheel;
+  return speed_filtered;
 }
 
 
