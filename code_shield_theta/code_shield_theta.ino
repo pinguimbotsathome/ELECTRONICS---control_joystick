@@ -20,15 +20,15 @@ struct Hall {
   unsigned long previousTime;
 };
 
-Hall ALeftHall = { 5, true, 0, 0, 0, 0 };    // white - orange
-Hall BLeftHall = { 18, true, 0, 0, 0, 0 };   // brown - blue
-Hall ARightHall = { 19, true, 0, 0, 0, 0 };  // gray - orange
-Hall BRightHall = { 21, true, 0, 0, 0, 0 };  // blue - blue
+Hall ARightHall = { 5, true, 0, 0, 0, 0 };   // white - orange
+Hall BRightHall = { 18, true, 0, 0, 0, 0 };  // brown - blue
+Hall ALeftHall = { 19, true, 0, 0, 0, 0 };   // gray - orange
+Hall BLeftHall = { 21, true, 0, 0, 0, 0 };   // blue - blue
 
 
 // variables - change radius and stoppedTime accordingly
 
-int stoppedTime = 300;      // 0.3s = 300 000
+int stoppedTime = 500;      // 1s = 1 000
 float radiusWheel = 0.165;  // in meters
 
 
@@ -74,10 +74,10 @@ void setup() {
   pinMode(Xchannel, OUTPUT);
   pinMode(Ychannel, OUTPUT);
 
-  pinMode(ARightHall.pin, INPUT_PULLUP);
-  pinMode(BRightHall.pin, INPUT_PULLUP);
-  pinMode(ALeftHall.pin, INPUT_PULLUP);
-  pinMode(BLeftHall.pin, INPUT_PULLUP);
+  pinMode(ARightHall.pin, INPUT);
+  pinMode(BRightHall.pin, INPUT);
+  pinMode(ALeftHall.pin, INPUT);
+  pinMode(BLeftHall.pin, INPUT);
 
   attachInterrupt(
     digitalPinToInterrupt(ARightHall.pin), [] {
@@ -100,30 +100,33 @@ void setup() {
       leftMotorISR(&BLeftHall);
     },
     FALLING);
+
+  dacWrite(Xchannel, 130);
+  dacWrite(Ychannel, 130);
 }
 
 void loop() {
 
-  writeJoystickManually();
+  // writeJoystickManually();
   // Serial.println("- - - - - - - - - - - - - - - - - - - - - - - - - - - -");
 
 
   wheel leftWheel = speedLeftWheel(&ALeftHall, &BLeftHall);
-  float leftWheel_filtered = recursiveFilter(leftWheel.velLinear);
-  // Serial.println("LEFT = " + String(leftWheel_filtered));
+  float leftWheel_filtered = recursiveFilterLeft(leftWheel.velLinear);
+  // Serial.print("LEFT = " + String(leftWheel_filtered));
 
   wheel rightWheel = speedRightWheel(&ARightHall, &BRightHall);
-  float rightWheel_filtered = recursiveFilter(rightWheel.velLinear);
-  // Serial.println("RIGHT = " + String(rightWheel.velLinear));
+  float rightWheel_filtered = recursiveFilterRight(rightWheel.velLinear);
+  // Serial.println("  RIGHT = " + String(rightWheel_filtered));
+
   robot theta = wheelsVelocity2robotVelocity(leftWheel_filtered, rightWheel_filtered);
   // Serial.println("vLIN = " + String(theta.velLinear));
   // Serial.println("vANG = " + String(theta.velAngular));
   // Serial.println("- - - - - - - - - - - - - - - - - - - - - - - - - - - -");
 
-  // Serial.println(theta.velLinear);
-
-  float contrVelLin = controle_vel_linear(0.4, theta.velLinear);
-  robotVelocity2joystick(contrVelLin, 0.0);
+  float contrVelLin = controle_vel_linear(0.5, theta.velLinear);
+  float contrVelAng = controle_vel_angular(0.0, theta.velAngular);
+  robotVelocity2joystick(contrVelLin, contrVelAng);
 
 
   // writeJoystickManually();
@@ -133,44 +136,87 @@ void loop() {
 
 
 float controle_vel_linear(float vel_desejada, float vel_medida) {
+  float kp = 0.45;
+  float ki = 0.1;
 
-  float vel_controlada;  // Control output
-  float kp = 10.0;       // Proportional gain
-  float ki = 0.001;      // Integral gain
-  float kd = 0.0001;     // Derivative gain
+  // Variáveis de estado
+  static float prevError;
+  static float integral;
+  static unsigned long prevTime;
+  static float prevControle;
 
-  float prevError;
-  float integral;
-  long prevTime;
-  unsigned long sampleTime = 100;  //Sample time in milliseconds
+  // Tempo de amostragem em milissegundos
+  unsigned long sampleTime = 200;
+  unsigned long tempoAtual = millis();
 
-  unsigned long tempoAtual = xTaskGetTickCount();
+  // Verifica se é hora de realizar um novo cálculo de controle
   if (tempoAtual - prevTime >= sampleTime) {
-
-    double error = vel_desejada - vel_medida;
-
-
-    integral += error;
-    double derivative = (error - prevError);
-
-    prevError = error;
     prevTime = tempoAtual;
+    float error = vel_desejada - vel_medida;
+    float proporcional = kp * error;
+    integral += ki * error;
 
-    vel_controlada = kp * error + ki * integral + kd * derivative;
+    float Controle = proporcional + integral;
 
-    float a = vel_desejada + vel_controlada;
-    if (a > 0.5) {
-      a = 0.5;
-    } else if (a < -0.6) {
-      a = -0.6;
+    if (Controle > 0.5) {
+      Controle = 0.5;
+    } else if (Controle < -0.6) {
+      Controle = -0.6;
     }
 
-    Serial.print("vel_desejada: " + String(vel_desejada));
-    Serial.print("   vel_medida: " + String(vel_medida));
-    Serial.println("   vel_controlada: " + String(a));
-    return a;
+    prevControle = Controle;
+    prevError = error;
+
+    Serial.print("LINEAR - vel_des: " + String(vel_desejada));
+    Serial.print("   vel_med: " + String(vel_medida));
+    Serial.println("   con: " + String(Controle));
+
+    return Controle;
   }
+  return prevControle;
 }
+
+float controle_vel_angular(float vel_desejada, float vel_medida) {
+  float kp = 0.4;
+  float ki = 0.1;
+
+  // Variáveis de estado
+  static float prevError;
+  static float integral;
+  static unsigned long prevTime;
+  static float prevControle;
+
+  // Tempo de amostragem em milissegundos
+  unsigned long sampleTime = 200;
+  unsigned long tempoAtual = millis();
+
+  // Verifica se é hora de realizar um novo cálculo de controle
+  if (tempoAtual - prevTime >= sampleTime) {
+    prevTime = tempoAtual;
+    float error = vel_desejada - vel_medida;
+    float proporcional = kp * error;
+    integral += ki * error;
+
+    float Controle = proporcional + integral;
+
+    if (Controle > 1.5) {
+      Controle = 1.5;
+    } else if (Controle < -1.5) {
+      Controle = -1.5;
+    }
+
+    prevControle = Controle;
+    prevError = error;
+
+    Serial.print("ANGULAR - vel_des: " + String(vel_desejada));
+    Serial.print("   vel_med: " + String(vel_medida));
+    Serial.println("   con: " + String(Controle));
+
+    return Controle;
+  }
+  return prevControle;
+}
+
 
 
 robot wheelsVelocity2robotVelocity(float leftWheel_velLinear, float rightWheel_velLinear) {
@@ -187,11 +233,11 @@ robot wheelsVelocity2robotVelocity(float leftWheel_velLinear, float rightWheel_v
 
 
 void robotVelocity2joystick(float velLinear, float velAngular) {
-  float velLinearMAX = 0.5;   // (m/s) going forward
-  float velLinearMIN = -0.6;  // (m/s) going reverse
+  float velLinearMAX = 0.6;   // (m/s) going forward
+  float velLinearMIN = -0.7;  // (m/s) going reverse
 
-  float velAngularMAX = 1.5;  // (rad/s) 1 rad = 60°
-  float velAngularMIN = -1.5;
+  float velAngularMAX = 1.7;  // (rad/s) 1 rad = 60°
+  float velAngularMIN = -1.7;
 
   Y_joy = 255 * (velLinear - velLinearMIN) / (velLinearMAX - velLinearMIN);
   X_joy = 255 * (velAngular - velAngularMIN) / (velAngularMAX - velAngularMIN);
@@ -280,8 +326,8 @@ wheel speedRightWheel(Hall* Ahall, Hall* Bhall) {
 }
 
 
-float recursiveFilter(float speed_measured) {
-  static int sample_interval = 10;  // microseconds
+float recursiveFilterLeft(float speed_measured) {
+  static int sample_interval = 1;  // microseconds
   static int sample_qtd = 10;
   static float speed_filtered;
   static unsigned long last_update_time;
@@ -289,7 +335,25 @@ float recursiveFilter(float speed_measured) {
   unsigned long current_time = xTaskGetTickCount();
 
   if (current_time - last_update_time >= sample_interval) {
-    if (speed_measured <= speed_filtered + 0.7) {
+    if (speed_measured <= speed_filtered + 0.5) {  //could increase this to 1.0 for better window gap
+      speed_filtered += (speed_measured - speed_filtered) / (float)sample_qtd;
+      last_update_time = current_time;
+    }
+  }
+  return speed_filtered;
+}
+
+
+float recursiveFilterRight(float speed_measured) {
+  static int sample_interval = 1;  // microseconds
+  static int sample_qtd = 10;
+  static float speed_filtered;
+  static unsigned long last_update_time;
+
+  unsigned long current_time = xTaskGetTickCount();
+
+  if (current_time - last_update_time >= sample_interval) {
+    if (speed_measured <= speed_filtered + 0.5) {  //could increase this to 1.0 for better window gap
       speed_filtered += (speed_measured - speed_filtered) / (float)sample_qtd;
       last_update_time = current_time;
     }
