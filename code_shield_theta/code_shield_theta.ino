@@ -1,14 +1,15 @@
 /*
   Theta Locomotion Control Algorithm (ESP)
   Developed by Felipe Machado and Mateus Santos da Silva
-  Last modification: 07/09/2023
+  Last modification: 19/09/2023
   Version: 0.5
 
 - usable to read speed from hall efect sensor (speedLeftWheel and speedRightWheel)
 - control joystick by typing the bits values (writeJoystickManually)
+- control joystick by PI controler (controle_vel_linear)
 
 TODO:
-[ ] do the feedback loop control to asset desired speed
+[ ] refactor
 */
 
 struct Hall {
@@ -28,16 +29,13 @@ Hall BLeftHall = { 21, true, 0, 0, 0, 0 };   // blue - blue
 
 // variables - change radius and stoppedTime accordingly
 
-int stoppedTime = 1000000;  // 1s = 1 000 000
+int stoppedTime = 500;      // 1s = 1 000
 float radiusWheel = 0.165;  // in meters
 
 
 struct wheel {
   float velLinear;
 };
-
-wheel leftWheel;
-wheel rightWheel;
 
 int Xchannel = 25;
 int Ychannel = 26;
@@ -50,12 +48,6 @@ struct robot {
   float velLinear;
   float velAngular;
 };
-
-// Variables - Digital filter
-#define sampleSize 100 // Number of samples that the filter will filter.
-#define samplingInterval 1 // Sets the sampling interval in (ms).
-
-unsigned long timer1 = 0; // 
 
 
 void IRAM_ATTR rightMotorISR(Hall* hall) {  // IRAM_ATTR to run on RAM
@@ -83,10 +75,10 @@ void setup() {
   pinMode(Xchannel, OUTPUT);
   pinMode(Ychannel, OUTPUT);
 
-  pinMode(ARightHall.pin, INPUT_PULLUP);
-  pinMode(BRightHall.pin, INPUT_PULLUP);
-  pinMode(ALeftHall.pin, INPUT_PULLUP);
-  pinMode(BLeftHall.pin, INPUT_PULLUP);
+  pinMode(ARightHall.pin, INPUT);
+  pinMode(BRightHall.pin, INPUT);
+  pinMode(ALeftHall.pin, INPUT);
+  pinMode(BLeftHall.pin, INPUT);
 
   attachInterrupt(
     digitalPinToInterrupt(ARightHall.pin), [] {
@@ -109,6 +101,9 @@ void setup() {
       leftMotorISR(&BLeftHall);
     },
     FALLING);
+
+  dacWrite(Xchannel, 130);
+  dacWrite(Ychannel, 130);
 }
 
 void loop() {
@@ -116,30 +111,25 @@ void loop() {
   // writeJoystickManually();
   // Serial.println("- - - - - - - - - - - - - - - - - - - - - - - - - - - -");
 
-  leftWheel = speedLeftWheel(&ALeftHall, &BLeftHall);
-  rightWheel = speedRightWheel(&ARightHall, &BRightHall);
 
-  sampling();
+  wheel leftWheel = speedLeftWheel(&ALeftHall, &BLeftHall);
+  float leftWheel_filtered = recursiveFilterLeft(leftWheel.velLinear);
+  // Serial.print("LEFT = " + String(leftWheel_filtered));
 
-  wheel leftWheelFilter;
-  wheel rightWheelFilter;
-  
-  // Obtains the filtered value for the left wheel (side = 0).
-  leftWheelFilter.velLinear = movingAverageFilter(0, 0);
-  // Obtains the filtered value for the right wheel (side = 1).
-  rightWheelFilter.velLinear = movingAverageFilter(0, 1);
-  
-  Serial.println("LEFT = " + String(leftWheelFilter.velLinear));
-  Serial.println("RIGHT = " + String(rightWheelFilter.velLinear));
+  wheel rightWheel = speedRightWheel(&ARightHall, &BRightHall);
+  float rightWheel_filtered = recursiveFilterRight(rightWheel.velLinear);
+  // Serial.println("  RIGHT = " + String(rightWheel_filtered));
 
-  robot theta = wheelsVelocity2robotVelocity(leftWheel.velLinear, rightWheel.velLinear);
+  robot theta = wheelsVelocity2robotVelocity(leftWheel_filtered, rightWheel_filtered);
   // Serial.println("vLIN = " + String(theta.velLinear));
   // Serial.println("vANG = " + String(theta.velAngular));
-
   // Serial.println("- - - - - - - - - - - - - - - - - - - - - - - - - - - -");
 
-  float contrVelLin = controle_vel_linear(0.0, theta.velLinear);
-  robotVelocity2joystick(contrVelLin, 0.0);
+  float contrVelLin = controle_vel_linear(0.5, theta.velLinear);
+  float contrVelAng = controle_vel_angular(0.0, theta.velAngular);
+  robotVelocity2joystick(contrVelLin, contrVelAng);
+
+
   // writeJoystickManually();
   // Serial.println("- - - - - - - - - - - - - - - - - - - - - - - - - - - -");
 }
@@ -147,42 +137,79 @@ void loop() {
 
 
 float controle_vel_linear(float vel_desejada, float vel_medida) {
+  float kp = 0.45;
+  float ki = 0.1;
 
-  float vel_controlada;  // Control output
-  float kp = 0.01;             // Proportional gain
-  float ki = 0.0001;              // Integral gain
-  float kd = 0.001;             // Derivative gain
+  static float prevError;
+  static float integral;
+  static unsigned long prevTime;
+  static float prevControle;
 
-  float prevError = 0.0;
-  float integral = 0.0;
-  long prevTime = 0;
-  unsigned long sampleTime = 500;  //Sample time in milliseconds
-
+  unsigned long sampleTime = 200;
   unsigned long tempoAtual = millis();
   if (tempoAtual - prevTime >= sampleTime) {
-    double error = vel_desejada - vel_medida;
-    integral += error * (tempoAtual - prevTime);
-
-    double derivative = (error - prevError) / (tempoAtual - prevTime);
-
-    prevError = error;
     prevTime = tempoAtual;
+    float error = vel_desejada - vel_medida;
+    float proporcional = kp * error;
+    integral += ki * error;
 
-    vel_controlada = kp * error + ki * integral + kd * derivative;
+    float Controle = proporcional + integral;
 
-    if (vel_controlada > 0.5) {
-      vel_controlada = 0.5;
-    } else if (vel_controlada < -0.6) {
-      vel_controlada = -0.6;
+    if (Controle > 0.5) {
+      Controle = 0.5;
+    } else if (Controle < -0.6) {
+      Controle = -0.6;
     }
 
-    Serial.print("vel_desejada: " + String(vel_desejada));
-    Serial.print("   vel_medida: " + String(vel_medida));
-    Serial.println("   vel_controlada: " + String(vel_controlada));
+    prevControle = Controle;
+    prevError = error;
 
-    return vel_controlada;
+    Serial.print("LINEAR - vel_des: " + String(vel_desejada));
+    Serial.print("   vel_med: " + String(vel_medida));
+    Serial.println("   con: " + String(Controle));
+
+    return Controle;
   }
+  return prevControle;
 }
+
+float controle_vel_angular(float vel_desejada, float vel_medida) {
+  float kp = 0.4;
+  float ki = 0.1;
+
+  static float prevError;
+  static float integral;
+  static unsigned long prevTime;
+  static float prevControle;
+
+  unsigned long sampleTime = 200;
+  unsigned long tempoAtual = millis();
+  if (tempoAtual - prevTime >= sampleTime) {
+    prevTime = tempoAtual;
+    float error = vel_desejada - vel_medida;
+    float proporcional = kp * error;
+    integral += ki * error;
+
+    float Controle = proporcional + integral;
+
+    if (Controle > 1.5) {
+      Controle = 1.5;
+    } else if (Controle < -1.5) {
+      Controle = -1.5;
+    }
+
+    prevControle = Controle;
+    prevError = error;
+
+    Serial.print("ANGULAR - vel_des: " + String(vel_desejada));
+    Serial.print("   vel_med: " + String(vel_medida));
+    Serial.println("   con: " + String(Controle));
+
+    return Controle;
+  }
+  return prevControle;
+}
+
 
 
 robot wheelsVelocity2robotVelocity(float leftWheel_velLinear, float rightWheel_velLinear) {
@@ -199,11 +226,11 @@ robot wheelsVelocity2robotVelocity(float leftWheel_velLinear, float rightWheel_v
 
 
 void robotVelocity2joystick(float velLinear, float velAngular) {
-  float velLinearMAX = 0.5;   // (m/s) going forward
-  float velLinearMIN = -0.6;  // (m/s) going reverse
+  float velLinearMAX = 0.6;   // (m/s) going forward
+  float velLinearMIN = -0.7;  // (m/s) going reverse
 
-  float velAngularMAX = 1.5;  // (rad/s) 1 rad = 60°
-  float velAngularMIN = -1.5;
+  float velAngularMAX = 1.7;  // (rad/s) 1 rad = 60°
+  float velAngularMIN = -1.7;
 
   Y_joy = 255 * (velLinear - velLinearMIN) / (velLinearMAX - velLinearMIN);
   X_joy = 255 * (velAngular - velAngularMIN) / (velAngularMAX - velAngularMIN);
@@ -218,7 +245,44 @@ void robotVelocity2joystick(float velLinear, float velAngular) {
 
 wheel speedLeftWheel(Hall* Ahall, Hall* Bhall) {
   static wheel localWheel;
-  Ahall->currentTime = micros();
+  Ahall->currentTime = xTaskGetTickCount();  // micros();
+
+  // If the wheels have stopped for stoppedTime, reset hall values
+  if (Ahall->currentTime - Ahall->previousTime >= stoppedTime) {
+
+    Ahall->endPulse = true;
+    Ahall->timeStart = 0;
+    Bhall->timeEnd = 0;
+    Ahall->timeEnd = 0;
+    Ahall->previousTime = Ahall->currentTime;
+
+    localWheel.velLinear = 0;
+  }
+
+  // If there is a complete wheel turn from A Hall sensor
+  if (Ahall->timeStart && Ahall->endPulse) {
+    int deltaTime = (Ahall->timeEnd - Ahall->timeStart);  // in miliseconds
+    float freq = 1 / (deltaTime / 1000.0);                // divide by float to save whole number
+    float rpmWheel = freq * (60 / 32.0);
+    float angularFrequency = ((rpmWheel * (2 * PI / 60.0)));  // (rad/s)
+    localWheel.velLinear = angularFrequency * radiusWheel;    // (m/s)
+
+    if ((Ahall->timeEnd - Bhall->timeEnd) > (Bhall->timeEnd - Ahall->timeStart)) {
+      localWheel.velLinear = localWheel.velLinear * (-1);
+    }
+
+    // Reset the Hall sensor values and update the previousTime variable
+    Ahall->timeStart = 0;
+    Bhall->timeEnd = 0;
+    Ahall->timeEnd = 0;
+    Ahall->previousTime = Ahall->currentTime;
+  }
+  return localWheel;
+}
+
+wheel speedRightWheel(Hall* Ahall, Hall* Bhall) {
+  static wheel localWheel;
+  Ahall->currentTime = xTaskGetTickCount();  // micros();
 
   // If the wheels have stopped for stoppedTime, reset hall values
   if (Ahall->currentTime - Ahall->previousTime >= stoppedTime) {
@@ -254,42 +318,40 @@ wheel speedLeftWheel(Hall* Ahall, Hall* Bhall) {
   return localWheel;
 }
 
-wheel speedRightWheel(Hall* Ahall, Hall* Bhall) {
-  static wheel localWheel;
-  Ahall->currentTime = micros();
 
-  // If the wheels have stopped for stoppedTime, reset hall values
-  if (Ahall->currentTime - Ahall->previousTime >= stoppedTime) {
+float recursiveFilterLeft(float speed_measured) {
+  static int sample_interval = 1;  // microseconds
+  static int sample_qtd = 10;
+  static float speed_filtered;
+  static unsigned long last_update_time;
 
-    Ahall->endPulse = true;
-    Ahall->timeStart = 0;
-    Bhall->timeEnd = 0;
-    Ahall->timeEnd = 0;
-    Ahall->previousTime = Ahall->currentTime;
+  unsigned long current_time = xTaskGetTickCount();
 
-    localWheel.velLinear = 0;
-  }
-
-  // If there is a complete wheel turn from A Hall sensor
-  if (Ahall->timeStart && Ahall->endPulse) {
-    int deltaTime = (Ahall->timeEnd - Ahall->timeStart);  // in miliseconds
-    float freq = 1 / (deltaTime / 1000.0);                // divide by float to save whole number
-    float rpmWheel = freq * (60 / 32.0);
-    float angularFrequency = ((rpmWheel * (2 * PI / 60.0)));  // (rad/s)
-    localWheel.velLinear = angularFrequency * radiusWheel;    // (m/s)
-
-    if ((Ahall->timeEnd - Bhall->timeEnd) > (Bhall->timeEnd - Ahall->timeStart)) {
-      localWheel.velLinear = localWheel.velLinear * (-1);
+  if (current_time - last_update_time >= sample_interval) {
+    if (speed_measured <= speed_filtered + 0.5) {  //could increase this to 1.0 for better window gap
+      speed_filtered += (speed_measured - speed_filtered) / (float)sample_qtd;
+      last_update_time = current_time;
     }
-
-    // Reset the Hall sensor values and update the previousTime variable
-    Ahall->timeStart = 0;
-    Bhall->timeEnd = 0;
-    Ahall->timeEnd = 0;
-    Ahall->previousTime = Ahall->currentTime;
   }
+  return speed_filtered;
+}
 
-  return localWheel;
+
+float recursiveFilterRight(float speed_measured) {
+  static int sample_interval = 1;  // microseconds
+  static int sample_qtd = 10;
+  static float speed_filtered;
+  static unsigned long last_update_time;
+
+  unsigned long current_time = xTaskGetTickCount();
+
+  if (current_time - last_update_time >= sample_interval) {
+    if (speed_measured <= speed_filtered + 0.5) {  //could increase this to 1.0 for better window gap
+      speed_filtered += (speed_measured - speed_filtered) / (float)sample_qtd;
+      last_update_time = current_time;
+    }
+  }
+  return speed_filtered;
 }
 
 
@@ -304,71 +366,5 @@ void writeJoystickManually() {
 
     dacWrite(Xchannel, X_joy);
     dacWrite(Ychannel, Y_joy);
-  }
-}
-
-void sampling() {
-  // Checks the sampling time.
-  if(millis() - timer1 > samplingInterval) {
-    // If the sampling time has occurred, it sends one to the moving average filter function in order to update the output value to a new filtered value.
-    movingAverageFilter(1, 0);
-    movingAverageFilter(1, 1);
-
-    timer1 = millis(); // Stores the last count.
-  }
-}
-
-// Moving average function (uses the static variable, meaning it saves the content without losing it on the next function execution).
-float movingAverageFilter(bool updateOutput, bool side){
-  // Wheel right
-  static float previousReadingsRight[sampleSize]; // Circular Buffer.
-  static int positionRight = 0; // Current reading position, which should be saved.
-  static long amountRight = 0; // Total sum of the circular buffer.
-  static float averageRight = 0; // Stores the result of the moving average filter.
-
-  // Wheel left
-  static float previousReadingsLeft[sampleSize];
-  static int positionLeft = 0;
-  static long amountLeft = 0;
-  static float averageLeft = 0;
-
-  static bool clearVector = 1; // Enables or disables vector clearing.
-
-  // Clears the vector the first time the function is executed.
-  if(clearVector) {
-    for(int i = 0; i <= sampleSize; i++){
-      previousReadingsRight[i] = 0;
-      previousReadingsLeft[i] = 0;
-    }
-
-    clearVector = 0;
-  }
-
-  if(side){
-    // Wheel right (side = 1)
-    if(updateOutput == 0)
-      // If the parameter received in the function is zero, it returns only the previously calculated mean value.
-      return ((double)averageRight);
-    else{
-      // If it's equal to one, it means it's at the sampling time, and then it updates the average variable.
-      amountRight = rightWheel.velLinear - previousReadingsRight[positionRight % sampleSize] + amountRight;
-      previousReadingsRight[positionRight % sampleSize] = rightWheel.velLinear;
-      averageRight = (float)amountRight / (float)sampleSize;
-      positionRight = (positionRight + 1) % sampleSize; 
-
-      return((double)averageRight);
-    }
-  }else{
-    // Wheel left (side = 0)
-    if(updateOutput == 0)
-      return ((double)averageLeft);
-    else{
-      amountLeft = leftWheel.velLinear - previousReadingsLeft[positionLeft % sampleSize] + amountLeft;
-      previousReadingsLeft[positionLeft % sampleSize] = leftWheel.velLinear;
-      averageLeft = (float)amountLeft / (float)sampleSize;
-      positionLeft = (positionLeft + 1) % sampleSize;
-
-      return((double)averageLeft);
-    }
   }
 }
