@@ -121,11 +121,11 @@ void loop() {
   // Serial.println("  RIGHT = " + String(rightWheel_filtered));
 
   robot theta = wheelsVelocity2robotVelocity(leftWheel_filtered, rightWheel_filtered);
-  // Serial.println("vLIN = " + String(theta.velLinear));
-  // Serial.println("vANG = " + String(theta.velAngular));
+  // Serial.print("vLIN = " + String(theta.velLinear));
+  // Serial.println("    vANG = " + String(theta.velAngular));
   // Serial.println("- - - - - - - - - - - - - - - - - - - - - - - - - - - -");
 
-  float contrVelLin = controle_vel_linear(0.5, theta.velLinear);
+  float contrVelLin = controle_vel_linear(0.3, theta.velLinear);
   float contrVelAng = controle_vel_angular(0.0, theta.velAngular);
   robotVelocity2joystick(contrVelLin, contrVelAng);
 
@@ -229,7 +229,7 @@ void robotVelocity2joystick(float velLinear, float velAngular) {
   float velLinearMAX = 0.6;   // (m/s) going forward
   float velLinearMIN = -0.7;  // (m/s) going reverse
 
-  float velAngularMAX = 1.7;  // (rad/s) 1 rad = 60°
+  float velAngularMAX = 2.3;  // (rad/s) 1 rad = 60°
   float velAngularMIN = -1.7;
 
   Y_joy = 255 * (velLinear - velLinearMIN) / (velLinearMAX - velLinearMIN);
@@ -320,38 +320,28 @@ wheel speedRightWheel(Hall* Ahall, Hall* Bhall) {
 
 
 float recursiveFilterLeft(float speed_measured) {
-  static int sample_interval = 1;  // microseconds
-  static int sample_qtd = 10;
-  static float speed_filtered;
-  static unsigned long last_update_time;
+  static float alpha = 0.001;
+  static float filteredValue = 0.0;
 
-  unsigned long current_time = xTaskGetTickCount();
-
-  if (current_time - last_update_time >= sample_interval) {
-    if (speed_measured <= speed_filtered + 0.5) {  //could increase this to 1.0 for better window gap
-      speed_filtered += (speed_measured - speed_filtered) / (float)sample_qtd;
-      last_update_time = current_time;
-    }
+  if (filteredValue == 0.0) {
+    filteredValue = speed_measured;
+  } else {
+    filteredValue = alpha * speed_measured + (1 - alpha) * filteredValue;
   }
-  return speed_filtered;
+  return filteredValue;
 }
 
 
 float recursiveFilterRight(float speed_measured) {
-  static int sample_interval = 1;  // microseconds
-  static int sample_qtd = 10;
-  static float speed_filtered;
-  static unsigned long last_update_time;
+  static float alpha = 0.001;
+  static float filteredValue = 0.0;
 
-  unsigned long current_time = xTaskGetTickCount();
-
-  if (current_time - last_update_time >= sample_interval) {
-    if (speed_measured <= speed_filtered + 0.5) {  //could increase this to 1.0 for better window gap
-      speed_filtered += (speed_measured - speed_filtered) / (float)sample_qtd;
-      last_update_time = current_time;
-    }
+  if (filteredValue == 0.0) {
+    filteredValue = speed_measured;
+  } else {
+    filteredValue = alpha * speed_measured + (1 - alpha) * filteredValue;
   }
-  return speed_filtered;
+  return filteredValue;
 }
 
 
