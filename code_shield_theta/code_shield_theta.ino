@@ -12,6 +12,13 @@ TODO:
 [ ] refactor
 */
 
+
+float a = 0.0;
+float b = 0.0;
+
+
+
+
 struct Hall {
   int pin;
   volatile bool endPulse;
@@ -106,18 +113,28 @@ void setup() {
   dacWrite(Ychannel, 130);
 }
 
+
+
 void loop() {
+
+  if (Serial.available() > 0) {  // No Line Ending
+
+    a = Serial.parseFloat();
+    Serial.println(a);
+    b = Serial.parseFloat();
+    Serial.println(b);
+  }
 
   // writeJoystickManually();
   // Serial.println("- - - - - - - - - - - - - - - - - - - - - - - - - - - -");
 
 
   wheel leftWheel = speedLeftWheel(&ALeftHall, &BLeftHall);
-  float leftWheel_filtered = recursiveFilterLeft(leftWheel.velLinear);
+  float leftWheel_filtered = filterLeft(leftWheel.velLinear);
   // Serial.print("LEFT = " + String(leftWheel_filtered));
 
   wheel rightWheel = speedRightWheel(&ARightHall, &BRightHall);
-  float rightWheel_filtered = recursiveFilterRight(rightWheel.velLinear);
+  float rightWheel_filtered = filterRight(rightWheel.velLinear);
   // Serial.println("  RIGHT = " + String(rightWheel_filtered));
 
   robot theta = wheelsVelocity2robotVelocity(leftWheel_filtered, rightWheel_filtered);
@@ -125,10 +142,10 @@ void loop() {
   // Serial.println("    vANG = " + String(theta.velAngular));
   // Serial.println("- - - - - - - - - - - - - - - - - - - - - - - - - - - -");
 
-  float contrVelLin = controle_vel_linear(0.3, theta.velLinear);
-  float contrVelAng = controle_vel_angular(0.0, theta.velAngular);
-  robotVelocity2joystick(contrVelLin, contrVelAng);
-
+  // float contrVelLin = controle_vel_linear(a, theta.velLinear);
+  // float contrVelAng = controle_vel_angular(0.0, theta.velAngular);
+  // robotVelocity2joystick(contrVelLin, contrVelAng);
+  robotVelocity2joystick(a, b);
 
   // writeJoystickManually();
   // Serial.println("- - - - - - - - - - - - - - - - - - - - - - - - - - - -");
@@ -164,9 +181,9 @@ float controle_vel_linear(float vel_desejada, float vel_medida) {
     prevControle = Controle;
     prevError = error;
 
-    Serial.print("LINEAR - vel_des: " + String(vel_desejada));
-    Serial.print("   vel_med: " + String(vel_medida));
-    Serial.println("   con: " + String(Controle));
+    // Serial.print("LINEAR - vel_des: " + String(vel_desejada));
+    // Serial.print("   vel_med: " + String(vel_medida));
+    // Serial.println("   con: " + String(Controle));
 
     return Controle;
   }
@@ -201,9 +218,9 @@ float controle_vel_angular(float vel_desejada, float vel_medida) {
     prevControle = Controle;
     prevError = error;
 
-    Serial.print("ANGULAR - vel_des: " + String(vel_desejada));
-    Serial.print("   vel_med: " + String(vel_medida));
-    Serial.println("   con: " + String(Controle));
+    // Serial.print("ANGULAR - vel_des: " + String(vel_desejada));
+    // Serial.print("   vel_med: " + String(vel_medida));
+    // Serial.println("   con: " + String(Controle));
 
     return Controle;
   }
@@ -319,8 +336,9 @@ wheel speedRightWheel(Hall* Ahall, Hall* Bhall) {
 }
 
 
-float recursiveFilterLeft(float speed_measured) {
-  static float alpha = 0.001;
+float filterLeft(float speed_measured) {  // iir filter aka EMA filter
+                                          //https://blog.stratifylabs.dev/device/2013-10-04-An-Easy-to-Use-Digital-Filter/
+  static float alpha = 0.001;             // low number for a low pass filter
   static float filteredValue = 0.0;
 
   if (filteredValue == 0.0) {
@@ -332,7 +350,7 @@ float recursiveFilterLeft(float speed_measured) {
 }
 
 
-float recursiveFilterRight(float speed_measured) {
+float filterRight(float speed_measured) {
   static float alpha = 0.001;
   static float filteredValue = 0.0;
 
