@@ -322,7 +322,7 @@ float filterLeft(float speed_measured) {
   // low number for a low pass filter
   static float filteredValue;
 
-  if (speed_measured > 1.0 || speed_measured < -1.0) {
+  if (speed_measured > 1.0 || speed_measured < -1.0 || (speed_measured > 0.1 && filteredValue < 0.1) || (speed_measured < -0.1 && filteredValue > 0.1)) {
     return filteredValue;
   }
 
@@ -338,9 +338,10 @@ float filterLeft(float speed_measured) {
 float filterRight(float speed_measured) {
   static float filteredValue;
 
-  if (speed_measured > 1.0 || speed_measured < -1.0) {
+  if (speed_measured > 1.0 || speed_measured < -1.0 || (speed_measured > 0.1 && filteredValue < 0.1) || (speed_measured < -0.1 && filteredValue > 0.1)) {
     return filteredValue;
   }
+
 
   if (filteredValue == 0.0) {
     filteredValue = speed_measured;
