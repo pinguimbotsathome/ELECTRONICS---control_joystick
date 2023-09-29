@@ -1,3 +1,5 @@
+// Libraries
+
 #include <ros.h>
 #include <geometry_msgs/Twist.h>
 #include <tf/transform_broadcaster.h>
@@ -5,6 +7,9 @@
 
 #include "tf/tf.h"
 #include "tf/tfMessage.h"
+
+
+// ROS comm
 
 ros::NodeHandle nh;
 geometry_msgs::Twist msg;
@@ -16,9 +21,98 @@ ros::Publisher odom_pub("odom", &odom);
 
 ros::Time current_time, last_time;
 
-double x = 0.0;
-double y = 0.0;
-double th = 0.0;
+double poseX = 0.0;
+double poseY = 0.0;
+double poseTanH = 0.0;
+
+
+void ros_receiver(const geometry_msgs::Twist& cmd_vel) {
+  float ros_linear = cmd_vel.linear.poseX;
+  float ros_ang = cmd_vel.angular.z;
+
+  robotVelocity2joystick(ros_linear, ros_ang);
+}
+
+ros::Subscriber<geometry_msgs::Twist> sub("/cmd_vel", ros_receiver);
+
+void ros_sender(robot theta) {
+  double vth = theta.velAngular;
+  double vx = theta.velLinear;
+
+  current_time = nh.now();
+
+  // //compute odometry in a typical way given the velocities of the robot
+  double dt = (current_time - last_time).toSec();
+  double delta_x = (vx * cos(poseTanH)) * dt;
+  double delta_y = (vx * sin(poseTanH)) * dt;
+  double delta_th = vth * dt;
+
+  poseX += delta_x;
+  poseY += delta_y;
+  poseTanH += delta_th;
+
+  // //since all odometry is 6DOF we'll need a quaternion created from yaw
+  geometry_msgs::Quaternion odom_quat = tf::createQuaternionFromYaw(poseTanH);
+
+  // //first, we'll publish the transform over tf
+  geometry_msgs::TransformStamped odom_trans;
+  odom_trans.header.stamp = current_time;
+  odom_trans.header.frame_id = "odom";
+  // odom_trans.child_frame_id = "base_link";
+
+  odom_trans.transform.translation.poseX = poseX;
+  odom_trans.transform.translation.poseY = poseY;
+  odom_trans.transform.translation.z = 0.0;
+  odom_trans.transform.rotation = odom_quat;
+
+  // //send the transform
+  // odom_broadcaster.sendTransform(odom_trans);
+
+  //next, we'll publish the odometry message over ROS
+  odom.header.stamp = current_time;
+  odom.header.frame_id = "odom";
+
+  //set the position
+  odom.pose.pose.position.poseX = poseX;
+  odom.pose.pose.position.poseY = poseY;
+  odom.pose.pose.position.z = 0.0;
+  odom.pose.pose.orientation = odom_quat;
+
+  //set the velocity
+  odom.child_frame_id = "base_link";
+  odom.twist.twist.linear.poseX = vx;
+  odom.twist.twist.angular.z = vth;
+
+  //publish the message
+  odom_pub.publish(&odom);
+  // nh.spinOnce();
+
+  last_time = current_time;
+}
+
+
+// Variables to get speed and write on joystick
+
+int stoppedTime = 500;      // 1s = 1000
+float radiusWheel = 0.165;  // in meters
+float trackWidth = 0.5;
+static float alpha = 0.01;               //0.0005     // for filtering
+const unsigned long interval2pub = 100;  // 100 = 0.1s = 100Hz
+unsigned long previousMillis2pub;
+
+int Xchannel = 25;
+int Ychannel = 26;
+int X_joy;
+int Y_joy;
+
+struct wheel {
+  float velLinear;
+};
+
+struct robot {
+  float velLinear;
+  float velAngular;
+};
 
 struct Hall {
   int pin;
@@ -35,30 +129,9 @@ Hall ALeftHall = { 19, true, 0, 0, 0, 0 };   // gray - orange
 Hall BLeftHall = { 21, true, 0, 0, 0, 0 };   // blue - blue
 
 
-// variables - change radius and stoppedTime accordingly
+// interruptions for hall effect sensor
 
-int stoppedTime = 500;      // 1s = 1 000
-float radiusWheel = 0.165;  // in meters
-
-
-struct wheel {
-  float velLinear;
-};
-
-int Xchannel = 25;
-int Ychannel = 26;
-int X_joy;  // = 105;
-int Y_joy;  // = 105;
-
-
-struct robot {
-  float trackWidth = 0.5;
-  float velLinear;
-  float velAngular;
-};
-
-
-void IRAM_ATTR rightMotorISR(Hall* hall) {  // IRAM_ATTR to run on RAM
+void IRAM_ATTR rightMotorISR(Hall* hall) {
 
   ARightHall.timeStart = BRightHall.timeEnd;
   BRightHall.timeEnd = ARightHall.timeEnd;
@@ -76,26 +149,17 @@ void IRAM_ATTR leftMotorISR(Hall* hall) {
   hall->endPulse = !hall->endPulse;
 }
 
-void ros_receiver(const geometry_msgs::Twist& cmd_vel) {
-  float ros_linear = cmd_vel.linear.x;
-  float ros_ang = cmd_vel.angular.z;
-
-  robotVelocity2joystick(ros_linear, ros_ang);
-}
-
-ros::Subscriber<geometry_msgs::Twist> sub("/cmd_vel", ros_receiver);
-
-const unsigned long interval = 100;  // 100 = 100ms = 100Hz
-unsigned long previousMillis;
 
 void setup() {
   Serial.begin(115200);
 
-  //ros setup:
+  //ros setup
   nh.getHardware()->setBaud(115200);
   nh.initNode();
   nh.subscribe(sub);
   nh.advertise(odom_pub);
+  current_time = nh.now();
+  last_time = nh.now();
 
   pinMode(Xchannel, OUTPUT);
   pinMode(Ychannel, OUTPUT);
@@ -129,19 +193,9 @@ void setup() {
 
   dacWrite(Xchannel, 130);
   dacWrite(Ychannel, 130);
-
-  current_time = nh.now();
-  last_time = nh.now();
-
-  wheel leftWheel = speedLeftWheel(&ALeftHall, &BLeftHall);
-  float leftWheel_filtered = filterLeft(leftWheel.velLinear);
-
-  wheel rightWheel = speedRightWheel(&ARightHall, &BRightHall);
-  float rightWheel_filtered = filterRight(rightWheel.velLinear);
 }
 
 void loop() {
-
   wheel leftWheel = speedLeftWheel(&ALeftHall, &BLeftHall);
   float leftWheel_filtered = filterLeft(leftWheel.velLinear);
 
@@ -150,73 +204,15 @@ void loop() {
 
   robot theta = wheelsVelocity2robotVelocity(leftWheel_filtered, rightWheel_filtered);
 
-  // robotVelocity2joystick(contrVelLin, contrVelAng);
   unsigned long currentMillis = millis();
-  if (currentMillis - previousMillis >= interval) {
-    previousMillis = currentMillis;
+  if (currentMillis - previousMillis2pub >= interval2pub) {
+    previousMillis2pub = currentMillis;
     ros_sender(theta);
   }
 
   nh.spinOnce();
-  // writeJoystickManually();
-  // Serial.println("- - - - - - - - - - - - - - - - - - - - - - - - - - - -");
 }
 
-
-void ros_sender(robot theta) {
-  double vth = theta.velAngular;
-  double vx = theta.velLinear;
-
-  current_time = nh.now();
-
-  // //compute odometry in a typical way given the velocities of the robot
-  double dt = (current_time - last_time).toSec();
-  double delta_x = (vx * cos(th)) * dt;
-  double delta_y = (vx * sin(th)) * dt;
-  double delta_th = vth * dt;
-
-  x += delta_x;
-  y += delta_y;
-  th += delta_th;
-
-  // //since all odometry is 6DOF we'll need a quaternion created from yaw
-  geometry_msgs::Quaternion odom_quat = tf::createQuaternionFromYaw(th);
-
-  // //first, we'll publish the transform over tf
-  geometry_msgs::TransformStamped odom_trans;
-  odom_trans.header.stamp = current_time;
-  odom_trans.header.frame_id = "odom";
-  // odom_trans.child_frame_id = "base_link";
-
-  odom_trans.transform.translation.x = x;
-  odom_trans.transform.translation.y = y;
-  odom_trans.transform.translation.z = 0.0;
-  odom_trans.transform.rotation = odom_quat;
-
-  // //send the transform
-  // odom_broadcaster.sendTransform(odom_trans);
-
-  //next, we'll publish the odometry message over ROS
-  odom.header.stamp = current_time;
-  odom.header.frame_id = "odom";
-
-  //set the position
-  odom.pose.pose.position.x = x;
-  odom.pose.pose.position.y = y;
-  odom.pose.pose.position.z = 0.0;
-  odom.pose.pose.orientation = odom_quat;
-
-  //set the velocity
-  odom.child_frame_id = "base_link";
-  odom.twist.twist.linear.x = vx;
-  odom.twist.twist.angular.z = vth;
-
-  //publish the message
-  odom_pub.publish(&odom);
-  // nh.spinOnce();
-
-  last_time = current_time;
-}
 
 robot wheelsVelocity2robotVelocity(float leftWheel_velLinear, float rightWheel_velLinear) {
   // https://www.roboticsbook.org/S52_diffdrive_actions.html
@@ -224,7 +220,7 @@ robot wheelsVelocity2robotVelocity(float leftWheel_velLinear, float rightWheel_v
   robot localRobot;
 
   localRobot.velLinear = (rightWheel_velLinear + leftWheel_velLinear) / 2;
-  localRobot.velAngular = (rightWheel_velLinear - leftWheel_velLinear) / localRobot.trackWidth;
+  localRobot.velAngular = (rightWheel_velLinear - leftWheel_velLinear) / trackWidth;
   // velAngular is negative clockwise on ROS
 
   return localRobot;
@@ -234,38 +230,23 @@ void robotVelocity2joystick(float velLinear, float velAngular) {
   float velLinearMAX = 0.6;   // (m/s) going forward
   float velLinearMIN = -0.7;  // (m/s) going reverse
 
-  float velAngularMAX = 2.3;   //1.2   // (rad/s) 1 rad = 60°
-  float velAngularMIN = -1.7;  // -1.0
+  float velAngularMAX = 2.3;  // (rad/s) 1 rad = 60°
+  float velAngularMIN = -1.7;
 
-  if (velLinear > velLinearMAX) {
-    velLinear = velLinearMAX;
-  }
-  if (velLinear < velLinearMIN) {
-    velLinear = velLinearMIN;
-  }
-  if (velAngular > velAngularMAX) {
-    velAngular = velAngularMAX;
-  }
-
-  if (velAngular > velAngularMIN) {
-    velAngular = velAngularMIN;
-  }
-
+  velLinear = constrain(velLinear, velLinearMIN, velLinearMAX);
+  velAngular = constrain(velAngular, velAngularMIN, velAngularMAX);
 
   Y_joy = 255 * (velLinear - velLinearMIN) / (velLinearMAX - velLinearMIN);
   X_joy = 255 * (velAngular - velAngularMIN) / (velAngularMAX - velAngularMIN);
 
   dacWrite(Xchannel, X_joy);
   dacWrite(Ychannel, Y_joy);
-
-  // Serial.print("X_joy: " + String(X_joy));
-  // Serial.println("      Y_joy: " + String(Y_joy));
 }
 
 
 wheel speedLeftWheel(Hall* Ahall, Hall* Bhall) {
   static wheel localWheel;
-  Ahall->currentTime = xTaskGetTickCount();  // micros();
+  Ahall->currentTime = xTaskGetTickCount();
 
   // If the wheels have stopped for stoppedTime, reset hall values
   if (Ahall->currentTime - Ahall->previousTime >= stoppedTime) {
@@ -302,9 +283,8 @@ wheel speedLeftWheel(Hall* Ahall, Hall* Bhall) {
 
 wheel speedRightWheel(Hall* Ahall, Hall* Bhall) {
   static wheel localWheel;
-  Ahall->currentTime = xTaskGetTickCount();  // micros();
+  Ahall->currentTime = xTaskGetTickCount();
 
-  // If the wheels have stopped for stoppedTime, reset hall values
   if (Ahall->currentTime - Ahall->previousTime >= stoppedTime) {
 
     Ahall->endPulse = true;
@@ -316,19 +296,17 @@ wheel speedRightWheel(Hall* Ahall, Hall* Bhall) {
     localWheel.velLinear = 0;
   }
 
-  // If there is a complete wheel turn from A Hall sensor
   if (Ahall->timeStart && Ahall->endPulse) {
-    int deltaTime = (Ahall->timeEnd - Ahall->timeStart);  // in miliseconds
-    float freq = 1 / (deltaTime / 1000.0);                // divide by float to save whole number
+    int deltaTime = (Ahall->timeEnd - Ahall->timeStart);
+    float freq = 1 / (deltaTime / 1000.0);
     float rpmWheel = freq * (60 / 32.0);
-    float angularFrequency = ((rpmWheel * (2 * PI / 60.0)));  // (rad/s)
-    localWheel.velLinear = angularFrequency * radiusWheel;    // (m/s)
+    float angularFrequency = ((rpmWheel * (2 * PI / 60.0)));
+    localWheel.velLinear = angularFrequency * radiusWheel;
 
     if ((Ahall->timeEnd - Bhall->timeEnd) > (Bhall->timeEnd - Ahall->timeStart)) {
       localWheel.velLinear = localWheel.velLinear * (-1);
     }
 
-    // Reset the Hall sensor values and update the previousTime variable
     Ahall->timeStart = 0;
     Bhall->timeEnd = 0;
     Ahall->timeEnd = 0;
@@ -338,22 +316,31 @@ wheel speedRightWheel(Hall* Ahall, Hall* Bhall) {
   return localWheel;
 }
 
-float filterLeft(float speed_measured) {  // iir filter aka EMA filter
-                                          //https://blog.stratifylabs.dev/device/2013-10-04-An-Easy-to-Use-Digital-Filter/
-  static float alpha = 0.0005;            //0.5            // low number for a low pass filter
-  static float filteredValue = 0.0;
+float filterLeft(float speed_measured) {
+  // iir filter aka EMA filter
+  //https://blog.stratifylabs.dev/device/2013-10-04-An-Easy-to-Use-Digital-Filter/
+  // low number for a low pass filter
+  static float filteredValue;
+
+  if (speed_measured > 1.0 || speed_measured < -1.0) {
+    return filteredValue;
+  }
 
   if (filteredValue == 0.0) {
     filteredValue = speed_measured;
   } else {
     filteredValue = alpha * speed_measured + (1 - alpha) * filteredValue;
   }
+  constrain(filteredValue, velLinearMIN, velLinearMAX);
   return filteredValue;
 }
 
 float filterRight(float speed_measured) {
-  static float alpha = 0.0005;
-  static float filteredValue = 0.0;
+  static float filteredValue;
+
+  if (speed_measured > 1.0 || speed_measured < -1.0) {
+    return filteredValue;
+  }
 
   if (filteredValue == 0.0) {
     filteredValue = speed_measured;
